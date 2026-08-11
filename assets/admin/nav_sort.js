@@ -218,7 +218,13 @@
     if (addBtn && tpl && tpl.content) {
         addBtn.addEventListener('click', function () {
             if (rows().length >= MAX_ITEMS) {
-                alert('最多 ' + MAX_ITEMS + ' 个导航项');
+                var tip = '最多 ' + MAX_ITEMS + ' 个导航项';
+                // 优先用 layui layer 轻提示（admin.js 暴露于 CB_ADMIN），缺失时回退 alert
+                if (window.CB_ADMIN && CB_ADMIN.layer) {
+                    CB_ADMIN.layer.msg(tip, { icon: 2 });
+                } else {
+                    alert(tip);
+                }
                 return;
             }
             var frag = tpl.content.cloneNode(true);

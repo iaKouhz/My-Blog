@@ -1,6 +1,6 @@
 <?php
 /**
- * 后台视图：文章编辑（Vditor Markdown 编辑器，本地化资源缺失时降级为纯文本域）
+ * 后台视图：文章编辑（layui 表单 + Vditor Markdown 编辑器，本地化资源缺失时降级为纯文本域）
  */
 defined('APP_BOOT') or exit;
 $vditorAvailable = is_file(APP_ROOT . '/assets/vendor/vditor/dist/index.min.js');
@@ -31,22 +31,23 @@ if ($currentStatus === 'pending' && !isset($statusOptions['pending'])) {
 $isPageOn = $post && (int) $post['is_page'] === 1;
 ?>
 <div class="card">
-<form method="post" action="<?php echo e(site_base_admin('post/save')); ?>">
+<form method="post" action="<?php echo e(site_base_admin('post/save')); ?>" class="layui-form v-form">
     <?php echo Csrf::field(); ?>
     <input type="hidden" name="id" value="<?php echo $post ? (int) $post['id'] : 0; ?>">
 
-    <div class="form-row">
-        <label>标题 *</label>
-        <input type="text" name="title" value="<?php echo $post ? e($post['title']) : ''; ?>" required style="max-width:100%">
+    <div class="layui-form-item">
+        <label class="v-label">标题 *</label>
+        <input type="text" name="title" value="<?php echo $post ? e($post['title']) : ''; ?>" required class="layui-input" style="max-width:100%">
     </div>
 
-    <div class="form-inline" style="margin-bottom:14px">
-        <div class="form-row" style="margin:0">
-            <label>别名（slug），可选，用于伪静态 URL；小写字母/数字/连字符，不能为纯数字</label>
-            <input type="text" name="slug" value="<?php echo $post ? e($post['slug']) : ''; ?>" pattern="[a-z0-9-]*">
+    <?php // 别名/分类/状态/页面选项：行内多列 ?>
+    <div class="filter-bar" style="align-items:flex-start;margin-bottom:14px">
+        <div>
+            <label class="v-label">别名，不能为纯数字</label>
+            <input type="text" name="slug" value="<?php echo $post ? e($post['slug']) : ''; ?>" pattern="[a-z0-9-]*" class="layui-input" style="width:240px">
         </div>
-        <div class="form-row" style="margin:0">
-            <label>分类</label>
+        <div>
+            <label class="v-label">分类</label>
             <select name="category_id">
                 <option value="0">未分类</option>
                 <?php foreach ($categories as $cat): ?>
@@ -56,23 +57,21 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="form-row" style="margin:0">
-            <label>状态</label>
+        <div>
+            <label class="v-label">状态</label>
             <select name="status">
                 <?php foreach ($statusOptions as $optKey => $optName): ?>
                 <option value="<?php echo e($optKey); ?>" <?php echo $currentStatus === $optKey ? 'selected' : ''; ?>><?php echo e($optName); ?></option>
                 <?php endforeach; ?>
             </select>
         </div>
-        <div class="form-row" style="margin:0">
-            <label>&nbsp;</label>
+        <div style="padding-top:24px">
             <label style="display:flex;gap:6px;align-items:center">
                 <input type="checkbox" name="is_page" value="1" <?php echo $isPageOn ? 'checked' : ''; ?>>
                 作为独立页面（不出现在文章列表）
             </label>
         </div>
-        <div class="form-row" style="margin:0<?php echo $isPageOn ? '' : ';display:none'; ?>" id="showInNavRow">
-            <label>&nbsp;</label>
+        <div style="padding-top:24px<?php echo $isPageOn ? '' : ';display:none'; ?>" id="showInNavRow">
             <label style="display:flex;gap:6px;align-items:center">
                 <input type="checkbox" name="show_in_nav" value="1" <?php echo !empty($inNav) ? 'checked' : ''; ?>>
                 显示在侧边栏导航
@@ -86,48 +85,73 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
     <div class="form-hint" style="margin-bottom:10px">站点已开启文章审核：提交的文章需管理员审核通过后才会发布。</div>
     <?php endif; ?>
 
-    <div class="form-row">
-        <label>正文（Markdown）</label>
+    <div class="layui-form-item">
+        <label class="v-label">正文（Markdown）</label>
         <div id="vditor" style="<?php echo $vditorAvailable ? '' : 'display:none'; ?>"></div>
-        <textarea name="content" id="contentArea" style="max-width:100%;min-height:360px;width:100%"
+        <textarea name="content" id="contentArea" class="layui-textarea" style="max-width:100%;min-height:360px;width:100%"
             <?php echo $vditorAvailable ? 'hidden' : ''; ?>><?php echo $post ? e($post['content']) : ''; ?></textarea>
     </div>
 
-    <div class="form-row">
-        <label>摘要（可选，留空自动截取）</label>
-        <textarea name="excerpt" style="max-width:100%;width:100%;min-height:60px"><?php echo $post ? e($post['excerpt']) : ''; ?></textarea>
+    <div class="layui-form-item">
+        <label class="v-label">摘要（可选，留空自动截取）</label>
+        <textarea name="excerpt" class="layui-textarea" style="max-width:100%;width:100%;min-height:60px"><?php echo $post ? e($post['excerpt']) : ''; ?></textarea>
     </div>
 
-    <div class="form-row">
-        <label>封面图路径（可选，可用右侧上传按钮获取路径）</label>
-        <div class="form-inline">
-            <input type="text" name="cover" id="coverPath" value="<?php echo $post ? e($post['cover']) : ''; ?>">
+    <div class="layui-form-item">
+        <label class="v-label">封面图路径（可选，可用右侧上传按钮获取路径）</label>
+        <div class="filter-bar">
+            <input type="text" name="cover" id="coverPath" value="<?php echo $post ? e($post['cover']) : ''; ?>" class="layui-input" style="width:320px">
             <?php if (Auth::check_cap('upload')): ?>
             <input type="file" id="coverFile" accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
-            <button type="button" class="btn small gray" id="coverUploadBtn">上传封面</button>
+            <button type="button" class="layui-btn layui-btn-primary" id="coverUploadBtn">
+                <i class="layui-icon layui-icon-upload"></i> 上传封面
+            </button>
             <?php endif; ?>
         </div>
     </div>
 
-    <button class="btn" type="submit">保存</button>
-    <a class="btn gray" href="<?php echo e(site_base_admin('post/list')); ?>">返回</a>
+    <button class="layui-btn" type="submit"><i class="layui-icon layui-icon-ok"></i> 保存</button>
+    <a class="layui-btn layui-btn-primary" href="<?php echo e(site_base_admin('post/list')); ?>">返回</a>
 </form>
 </div>
 
 <?php if ($vditorAvailable): ?>
-<link rel="stylesheet" href="<?php echo e(assets_url('vendor/vditor/dist/index.css')); ?>">
+<link id="cbVditorCss" rel="stylesheet" href="<?php echo e(assets_url('vendor/vditor/dist/index.css')); ?>">
 <script src="<?php echo e(assets_url('vendor/vditor/dist/index.min.js')); ?>"></script>
 <script>
+// index.css 必须移入 head 尾部：Vditor 初始化时会把 content-theme css（dark/light）
+// 动态追加到 head 末尾，两条 .vditor-reset 规则特异性相同、文档顺序居后者生效；
+// 若 index.css 留在 body（位于动态样式之后），其浅色文字色会覆盖 dark.css 导致暗色黑字
+(function () {
+    var link = document.getElementById('cbVditorCss');
+    if (link) { document.head.appendChild(link); }
+})();
 (function () {
     var area = document.getElementById('contentArea');
+    // 明暗联动：head 内联脚本已在渲染前应用 darkmode 类，此处读取即可；
+    // 运行时切换由 admin.js 的 applyDarkMode 调 setTheme 同步
+    var isDark = document.documentElement.classList.contains('darkmode');
     window.cbVditor = new Vditor('vditor', {
         // 必须指定本地 cdn：Vditor 默认从 unpkg CDN 懒加载 lute/图标等子资源，违反禁 CDN 约束
         cdn: <?php echo json_encode(assets_url('vendor/vditor')); ?>,
+        // emoji 图片路径同样默认指向内置 CDN，须显式指向本地 dist/images/emoji
+        emojiPath: <?php echo json_encode(assets_url('vendor/vditor/dist/images/emoji')); ?>,
         height: 420,
-        mode: 'ir',
+        // 默认分屏渲染（sv）；所见即所得 wysiwyg / 即时渲染 ir 可在工具栏切换
+        mode: 'sv',
+        // 编辑器整体主题（工具栏/编辑区）：暗色用官方 dark 皮肤（样式已含在本地 index.css）
+        theme: isDark ? 'dark' : 'classic',
         value: area.value,
         cache: { enable: false },
-        preview: { math: { engine: 'katex' } },
+        // 预览内容主题：必须显式指定本地 path —— Vditor 默认从 unpkg CDN 拉取 content-theme css，
+        // 不指定则暗色下 dark.css 加载失败，wysiwyg/ir/预览区文字呈黑底黑字
+        preview: {
+            math: { engine: 'katex' },
+            theme: {
+                current: isDark ? 'dark' : 'light',
+                path: <?php echo json_encode(assets_url('vendor/vditor/dist/css/content-theme')); ?>
+            }
+        },
         toolbarConfig: { pin: true },
         upload: {
             url: <?php echo json_encode(site_base_admin('upload/image')); ?>,
@@ -165,6 +189,14 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
     var btn = document.getElementById('coverUploadBtn');
     var fileInput = document.getElementById('coverFile');
     if (!btn || !fileInput) { return; }
+    // 反馈优先用 layui layer.msg（admin.js 暴露于 CB_ADMIN），缺失时回退 alert
+    function feedback(msg, ok) {
+        if (window.CB_ADMIN && CB_ADMIN.layer) {
+            CB_ADMIN.layer.msg(msg, { icon: ok ? 1 : 2 });
+        } else {
+            window.alert(msg);
+        }
+    }
     btn.addEventListener('click', function () { fileInput.click(); });
     fileInput.addEventListener('change', function () {
         if (!fileInput.files.length) { return; }
@@ -179,10 +211,11 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
                     var resp = JSON.parse(xhr.responseText);
                     if (resp.code === 0) {
                         document.getElementById('coverPath').value = resp.data.url;
+                        feedback('封面上传成功', true);
                     } else {
-                        alert(resp.msg || '上传失败');
+                        feedback(resp.msg || '上传失败', false);
                     }
-                } catch (err) { alert('上传失败'); }
+                } catch (err) { feedback('上传失败', false); }
             }
         };
         xhr.send(fd);

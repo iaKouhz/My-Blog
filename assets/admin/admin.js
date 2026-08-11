@@ -1,6 +1,8 @@
 /**
- * 后台公共交互：明暗模式切换（与前台默认主题共用 cb-darkmode 键，localStorage 记忆，默认跟随系统）
- * + 移动端 ☰ 抽屉式导航（固定侧栏滑入滑出 + 遮罩）
+ * 后台公共交互（layui 版）：
+ * 1. 明暗模式切换（与前台默认主题共用 cb-darkmode 键，localStorage 记忆，默认跟随系统）
+ * 2. 移动端 ☰ 抽屉式导航（固定侧栏滑入滑出 + 遮罩）
+ * 3. layui 模块初始化：导航/表单控件渲染、data-confirm 弹层确认、闪存消息轻提示
  */
 (function () {
     'use strict';
@@ -24,9 +26,17 @@
         } else {
             document.documentElement.classList.remove('darkmode');
         }
+        // 图标随状态切换：暗色下显示太阳（点击回亮色），亮色下显示月亮
         var icon = document.getElementById('admin-darkmode-icon');
         if (icon) {
-            icon.textContent = enable ? '☀' : '☾';
+            icon.classList.remove('layui-icon-moon', 'layui-icon-light');
+            icon.classList.add(enable ? 'layui-icon-light' : 'layui-icon-moon');
+        }
+        // Vditor 编辑器联动（仅文章编辑页存在）：整体主题 + 预览内容主题同步切换
+        if (window.cbVditor && typeof window.cbVditor.setTheme === 'function') {
+            try {
+                window.cbVditor.setTheme(enable ? 'dark' : 'classic', enable ? 'dark' : 'light');
+            } catch (err) { /* 编辑器未就绪时静默，不影响明暗切换 */ }
         }
     }
 
@@ -85,20 +95,131 @@
         if (overlay) {
             overlay.addEventListener('click', closeSidebar);
         }
-        // 移动端点击导航链接后自动收起抽屉
+        // 移动端点击导航链接后自动收起抽屉；仅限真实跳转的链接——
+        // 组标题（href="javascript:;"）只展开二级菜单不跳转，收起会导致子菜单无法操作
         var links = side.querySelectorAll('a');
         for (var i = 0; i < links.length; i++) {
             links[i].addEventListener('click', function () {
-                if (window.innerWidth <= SIDE_BREAKPOINT) {
-                    closeSidebar();
+                if (window.innerWidth > SIDE_BREAKPOINT) {
+                    return;
                 }
+                var href = this.getAttribute('href') || '';
+                if (href === '' || href === '#' || href.indexOf('javascript:') === 0) {
+                    return;
+                }
+                // 新窗口打开的链接不影响当前页面抽屉状态
+                if (this.getAttribute('target') === '_blank') {
+                    return;
+                }
+                closeSidebar();
             });
         }
+    }
+
+    /** data-confirm 表单：提交前经 layer.confirm 二次确认（取代原生 confirm） */
+    function initConfirmForms(layer) {
+        document.addEventListener('submit', function (e) {
+            var form = e.target;
+            if (!form || !form.getAttribute) {
+                return;
+            }
+            var msg = form.getAttribute('data-confirm');
+            if (!msg) {
+                return;
+            }
+            if (layer) {
+                e.preventDefault();
+                layer.confirm(msg, { icon: 3, title: '操作确认', btn: ['确认', '取消'] }, function (index) {
+                    layer.close(index);
+                    form.submit();
+                });
+            } else {
+                // layui 未加载时回退原生确认，功能不受影响
+                if (!window.confirm(msg)) {
+                    e.preventDefault();
+                }
+            }
+        });
+    }
+
+    /** 闪存消息轻提示（DOM 内已有可见块，toast 仅作强化，取第一条避免连弹） */
+    function initFlashToast(layer) {
+        var msgs = window.CB_FLASH;
+        if (!msgs || !msgs.length) {
+            return;
+        }
+        var first = msgs[0];
+        layer.msg(first.text, {
+            icon: first.type === 'success' ? 1 : 2,
+            time: 2500,
+            anim: 6
+        });
+    }
+
+    /** 通用 laydate 日期范围选择：.cb-date-range 可见框选定后经 data-from/data-to
+        拆回隐藏域提交（后端仍收独立 from/to 参数）；无 JS 时隐藏域保持原值不受影响 */
+    function initDateRanges(laydate) {
+        if (!laydate) {
+            return;
+        }
+        var elems = document.querySelectorAll('.cb-date-range');
+        Array.prototype.forEach.call(elems, function (el) {
+            var fromSel = el.getAttribute('data-from');
+            var toSel = el.getAttribute('data-to');
+            laydate.render({
+                elem: el,
+                type: 'date',
+                format: 'yyyy-MM-dd',
+                range: '~',
+                done: function (value) {
+                    var fromEl = fromSel ? document.querySelector(fromSel) : null;
+                    var toEl = toSel ? document.querySelector(toSel) : null;
+                    if (!fromEl || !toEl) {
+                        return;
+                    }
+                    if (!value) {
+                        fromEl.value = '';
+                        toEl.value = '';
+                        return;
+                    }
+                    var parts = value.split('~');
+                    fromEl.value = (parts[0] || '').replace(/^\s+|\s+$/g, '');
+                    toEl.value = (parts[1] || '').replace(/^\s+|\s+$/g, '');
+                }
+            });
+        });
+    }
+
+    /** layui 模块初始化：导航/下拉/开关渲染 + 弹层交互 */
+    function initLayui() {
+        if (!window.layui || !layui.use) {
+            // layui 缺失时仅保留原生确认回退
+            initConfirmForms(null);
+            return;
+        }
+        layui.use(['element', 'form', 'layer', 'laydate'], function () {
+            var layer = layui.layer;
+            initConfirmForms(layer);
+            initFlashToast(layer);
+            initDateRanges(layui.laydate);
+            // element 模块渲染导航树/选项卡/折叠面板；部分版本自动初始化，此处显式兜底
+            if (layui.element && layui.element.render) {
+                layui.element.render();
+            }
+            // form 模块加载时会自动渲染页面上的下拉、开关等，
+            // 此处显式再渲染一次，兜底插件钩子在 DOM 就绪后追加的控件
+            if (layui.form && layui.form.render) {
+                layui.form.render();
+            }
+            // 暴露给视图脚本（封面/头像上传等）复用
+            window.CB_ADMIN = { layer: layer, form: layui.form };
+        });
     }
 
     function init() {
         initDarkMode();
         initSidebar();
+        initLayui();
     }
 
     if (document.readyState === 'loading') {

@@ -420,7 +420,8 @@ function paginate($page, $totalPages, $route, array $params = array())
 }
 
 /**
- * 后台分页导航：仅多于 1 页时输出；页码 >10 时折叠为首尾 + 当前页附近，其余省略号
+ * 后台分页导航（layui-laypage 结构）：仅多于 1 页时输出；
+ * 页码 >10 时折叠为首尾 + 当前页附近，其余省略号
  *
  * @param int    $page       当前页码
  * @param int    $totalPages 总页数
@@ -438,18 +439,25 @@ function admin_pager($page, $totalPages, $urlBase)
             $visible[] = $i;
         }
     }
-    $html = '<div class="pager">';
+    $html = '<div class="layui-box layui-laypage">';
+    if ($page > 1) {
+        $html .= '<a href="' . e(site_base_admin($urlBase . 'page=' . ($page - 1))) . '">« 上一页</a>';
+    }
     $prev = 0;
     foreach ($visible as $i) {
         if ($prev > 0 && $i - $prev > 1) {
-            $html .= '<span class="gap">…</span>';
+            $html .= '<span>…</span>';
         }
         if ($i === (int) $page) {
-            $html .= '<span class="cur">' . $i . '</span>';
+            // laypage 当前页：em 双层结构（底色层 + 文本层）为 layui 约定标记
+            $html .= '<span class="layui-laypage-curr"><em class="layui-laypage-em"></em><em>' . $i . '</em></span>';
         } else {
             $html .= '<a href="' . e(site_base_admin($urlBase . 'page=' . $i)) . '">' . $i . '</a>';
         }
         $prev = $i;
+    }
+    if ($page < $totalPages) {
+        $html .= '<a href="' . e(site_base_admin($urlBase . 'page=' . ($page + 1))) . '">下一页 »</a>';
     }
     return $html . '</div>';
 }

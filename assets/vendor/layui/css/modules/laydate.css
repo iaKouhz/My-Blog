@@ -1,0 +1,5 @@
+/* laydate 按需样式占位文件
+   laydate 模块 ready 时会经 layui.addcss 动态加载 css/modules/laydate.css；
+   加载失败（文件缺失）会导致渲染回调不执行、日期面板无法弹出。
+   本站使用 layui 2.13.8 全量发行版，laydate 全部样式已合并进 css/layui.css，
+   故此处仅占位使加载成功，无需重复定义样式（勿删除本文件）。 */

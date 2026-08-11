@@ -1,6 +1,6 @@
 <?php
 /**
- * 后台视图：站点设置
+ * 后台视图：站点设置（layui 表单；布尔项经 form 模块渲染为开关）
  */
 defined('APP_BOOT') or exit;
 // 常用时区候选（保存时服务端会校验是否为 PHP 合法时区标识）
@@ -30,31 +30,31 @@ $timezones = array(
 $currentTimezone = Option::get('timezone', 'Asia/Shanghai');
 ?>
 <div class="card">
-    <form method="post" action="<?php echo e(site_base_admin('setting/site_save')); ?>">
+    <form method="post" action="<?php echo e(site_base_admin('setting/site_save')); ?>" class="layui-form v-form">
         <?php echo Csrf::field(); ?>
-        <div class="form-row">
-            <label>站点名称</label>
-            <input type="text" name="site_name" value="<?php echo e(Option::get('site_name', '个人博客')); ?>" required>
+        <div class="layui-form-item">
+            <label class="v-label">站点名称</label>
+            <input type="text" name="site_name" value="<?php echo e(Option::get('site_name', '个人博客')); ?>" required class="layui-input">
         </div>
-        <div class="form-row">
-            <label>一句话座右铭</label>
-            <input type="text" name="site_motto" value="<?php echo e(Option::get('site_motto', '')); ?>">
+        <div class="layui-form-item">
+            <label class="v-label">一句话座右铭</label>
+            <input type="text" name="site_motto" value="<?php echo e(Option::get('site_motto', '')); ?>" class="layui-input">
         </div>
-        <div class="form-row">
-            <label>站点描述（SEO）</label>
-            <textarea name="site_description" rows="2"><?php echo e(Option::get('site_description', '')); ?></textarea>
+        <div class="layui-form-item">
+            <label class="v-label">站点描述（SEO）</label>
+            <textarea name="site_description" rows="2" class="layui-textarea"><?php echo e(Option::get('site_description', '')); ?></textarea>
         </div>
-        <div class="form-row">
-            <label>关键词（SEO，逗号分隔）</label>
-            <input type="text" name="site_keywords" value="<?php echo e(Option::get('site_keywords', '')); ?>">
+        <div class="layui-form-item">
+            <label class="v-label">关键词（SEO，逗号分隔）</label>
+            <input type="text" name="site_keywords" value="<?php echo e(Option::get('site_keywords', '')); ?>" class="layui-input">
         </div>
-        <div class="form-row">
-            <label>每页文章条数（1-50）</label>
+        <div class="layui-form-item">
+            <label class="v-label">每页文章条数（1-50）</label>
             <input type="number" name="posts_per_page" min="1" max="50"
-                   value="<?php echo (int) Option::get('posts_per_page', 10); ?>">
+                   value="<?php echo (int) Option::get('posts_per_page', 10); ?>" class="layui-input">
         </div>
-        <div class="form-row">
-            <label>站点时区（影响日志、文章、评论等全部时间显示）</label>
+        <div class="layui-form-item">
+            <label class="v-label">站点时区（影响日志、文章、评论等全部时间显示）</label>
             <select name="timezone">
                 <?php foreach ($timezones as $tzId => $tzLabel): ?>
                 <option value="<?php echo e($tzId); ?>" <?php echo $currentTimezone === $tzId ? 'selected' : ''; ?>>
@@ -66,34 +66,31 @@ $currentTimezone = Option::get('timezone', 'Asia/Shanghai');
                 <?php endif; ?>
             </select>
         </div>
-        <div class="form-row">
-            <label>
-                <input type="checkbox" name="register_disabled" value="1"
-                       <?php echo Option::get('register_disabled', '0') === '1' ? 'checked' : ''; ?>>
-                关闭公开注册（勾选后前台注册页不可访问，新用户只能由后台创建）
-            </label>
+        <?php // 布尔开关：lay-skin=switch 由 layui form 渲染；无 JS 时回退为原生勾选框 ?>
+        <div class="layui-form-item">
+            <label class="v-label">关闭公开注册</label>
+            <input type="checkbox" name="register_disabled" lay-skin="switch" lay-text="开|关" value="1"
+                   <?php echo Option::get('register_disabled', '0') === '1' ? 'checked' : ''; ?>>
+            <div class="form-hint">勾选后前台注册页不可访问，新用户只能由后台创建</div>
         </div>
-        <div class="form-row">
-            <label>
-                <input type="checkbox" name="post_audit" value="1"
-                       <?php echo Option::get('post_audit', '0') === '1' ? 'checked' : ''; ?>>
-                开启文章审核（开启后仅管理员可直接发布，投稿进入待审核）
-            </label>
+        <div class="layui-form-item">
+            <label class="v-label">开启文章审核</label>
+            <input type="checkbox" name="post_audit" lay-skin="switch" lay-text="开|关" value="1"
+                   <?php echo Option::get('post_audit', '0') === '1' ? 'checked' : ''; ?>>
+            <div class="form-hint">开启后仅管理员可直接发布，投稿进入待审核</div>
         </div>
-        <div class="form-row">
-            <label>
-                <input type="checkbox" name="comment_audit" value="1"
-                       <?php echo Option::get('comment_audit', '0') === '1' ? 'checked' : ''; ?>>
-                开启评论审核（开启后评论须管理员审核后才公开）
-            </label>
+        <div class="layui-form-item">
+            <label class="v-label">开启评论审核</label>
+            <input type="checkbox" name="comment_audit" lay-skin="switch" lay-text="开|关" value="1"
+                   <?php echo Option::get('comment_audit', '0') === '1' ? 'checked' : ''; ?>>
+            <div class="form-hint">开启后评论须管理员审核后才公开</div>
         </div>
-        <div class="form-row">
-            <label>
-                <input type="checkbox" name="rewrite_enabled" value="1"
-                       <?php echo Option::get('rewrite_enabled', '0') === '1' ? 'checked' : ''; ?>>
-                启用伪静态（需服务器已配置 rewrite 规则，见 README）
-            </label>
+        <div class="layui-form-item">
+            <label class="v-label">启用伪静态</label>
+            <input type="checkbox" name="rewrite_enabled" lay-skin="switch" lay-text="开|关" value="1"
+                   <?php echo Option::get('rewrite_enabled', '0') === '1' ? 'checked' : ''; ?>>
+            <div class="form-hint">需服务器已配置 rewrite 规则，见 README</div>
         </div>
-        <button class="btn" type="submit">保存</button>
+        <button class="layui-btn" type="submit"><i class="layui-icon layui-icon-ok"></i> 保存</button>
     </form>
 </div>

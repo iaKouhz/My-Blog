@@ -21,13 +21,24 @@ $greetUser = Auth::user();
 </div>
 
 <?php if (Auth::isAdmin()): ?>
-<div class="stat-grid">
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['posts']; ?></div><div class="lab">文章总数</div></div>
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['published']; ?></div><div class="lab">已发布</div></div>
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['pendingPosts']; ?></div><div class="lab">待审核文章</div></div>
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['comments']; ?></div><div class="lab">已公开评论</div></div>
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['pendingComments']; ?></div><div class="lab">待审评论</div></div>
-    <div class="stat-item"><div class="num"><?php echo (int) $stats['users']; ?></div><div class="lab">注册用户</div></div>
+<?php // 统计卡片：layui 栅格，窄屏两列、宽屏六列 ?>
+<div class="layui-row layui-col-space14">
+    <?php $statItems = array(
+        array('num' => (int) $stats['posts'], 'lab' => '文章总数'),
+        array('num' => (int) $stats['published'], 'lab' => '已发布'),
+        array('num' => (int) $stats['pendingPosts'], 'lab' => '待审核文章'),
+        array('num' => (int) $stats['comments'], 'lab' => '已公开评论'),
+        array('num' => (int) $stats['pendingComments'], 'lab' => '待审评论'),
+        array('num' => (int) $stats['users'], 'lab' => '注册用户'),
+    ); ?>
+    <?php foreach ($statItems as $st): ?>
+    <div class="layui-col-xs6 layui-col-sm4 layui-col-md2">
+        <div class="stat-item">
+            <div class="num"><?php echo $st['num']; ?></div>
+            <div class="lab"><?php echo e($st['lab']); ?></div>
+        </div>
+    </div>
+    <?php endforeach; ?>
 </div>
 <?php endif; ?>
 
@@ -35,18 +46,22 @@ $greetUser = Auth::user();
 <div class="card" style="margin-top:18px">
     <h3>最近审计日志</h3>
     <div class="table-wrap">
-    <table class="table">
-        <tr><th>时间</th><th>用户</th><th>类别</th><th>动作</th><th>结果</th><th>IP</th></tr>
+    <table class="layui-table" lay-skin="line">
+        <thead>
+            <tr><th>时间</th><th>用户</th><th>类别</th><th>动作</th><th>结果</th><th>IP</th></tr>
+        </thead>
+        <tbody>
         <?php foreach ($recentLogs as $logItem): ?>
         <tr>
             <td><?php echo e($logItem['created_at']); ?></td>
             <td><?php echo (int) $logItem['user_id']; ?>（<?php echo e($logItem['role']); ?>）</td>
             <td><?php echo e($logItem['category']); ?></td>
             <td><?php echo e($logItem['action']); ?></td>
-            <td><?php if ($logItem['result'] === 'success'): ?><span class="tag green">成功</span><?php else: ?><span class="tag red">失败</span><?php endif; ?></td>
+            <td><?php if ($logItem['result'] === 'success'): ?><span class="layui-badge layui-bg-green">成功</span><?php else: ?><span class="layui-badge layui-bg-red">失败</span><?php endif; ?></td>
             <td><?php echo e($logItem['ip']); ?></td>
         </tr>
         <?php endforeach; ?>
+        </tbody>
     </table>
     </div>
     <p><a href="<?php echo e(site_base_admin('log/list')); ?>">进入日志中心 →</a></p>

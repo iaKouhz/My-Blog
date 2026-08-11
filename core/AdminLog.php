@@ -29,22 +29,15 @@ class AdminLog
         if ($keyword !== '') {
             $query->where('action', 'LIKE', '%' . str_replace(array('%', '_'), '', $keyword) . '%');
         }
-        $from = self::dateInput('from');
+        // 日期窗口：首次进入默认"一个月前 ~ 当天"（filter_date_range 统一处理）
+        list($from, $to) = filter_date_range();
         if ($from !== '') {
             $query->where('created_at', '>=', $from . ' 00:00:00');
         }
-        $to = self::dateInput('to');
         if ($to !== '') {
             $query->where('created_at', '<=', $to . ' 23:59:59');
         }
         return $query;
-    }
-
-    /** 日期参数白名单校验 */
-    private static function dateInput($key)
-    {
-        $value = input_text($key, '', 10, 'get');
-        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) ? $value : '';
     }
 
     /** 日志列表 */
@@ -63,14 +56,15 @@ class AdminLog
             'page'     => $page,
         ));
 
+        list($fFrom, $fTo) = filter_date_range();
         Admin::render('日志中心', 'log_list', array(
             'logs' => $logs, 'page' => $page, 'totalPages' => $totalPages, 'total' => $total,
             'categories' => self::categories(),
             'fCategory' => input_enum('category', self::categories(), 'all', 'get'),
             'fResult'   => input_enum('result', array('all', 'success', 'fail'), 'all', 'get'),
             'fKeyword'  => input_text('keyword', '', 64, 'get'),
-            'fFrom'     => self::dateInput('from'),
-            'fTo'       => self::dateInput('to'),
+            'fFrom'     => $fFrom,
+            'fTo'       => $fTo,
         ));
     }
 
@@ -89,10 +83,11 @@ class AdminLog
             flash_set('error', '导出审计日志须填写正确的当前密码');
             redirect(site_base_admin('log/list'));
         }
+        list($expFrom, $expTo) = filter_date_range();
         blog_log('security', 'log.export', 'success', array(
             'category' => input_enum('category', self::categories(), 'all', 'get'),
-            'from'     => self::dateInput('from'),
-            'to'       => self::dateInput('to'),
+            'from'     => $expFrom,
+            'to'       => $expTo,
         ));
 
         $logs = self::filtered()->orderBy('id', 'DESC')->limit(5000)->select();

@@ -6,7 +6,7 @@ defined('APP_BOOT') or exit;
 
 class AdminComment
 {
-    /** 评论列表 */
+    /** 评论列表（状态页签 + 作者/文章/发表时间筛选） */
     public static function listAction()
     {
         Auth::require_cap('manage_comments');
@@ -14,20 +14,11 @@ class AdminComment
         $page = max(1, input_int('page', 1, 'get'));
         $perPage = 20;
 
-        $query = DB::query('comments');
-        if ($status !== 'all') {
-            $query->where('status', '=', $status);
-        }
-        $total = $query->count();
+        $total = self::filtered($status)->count();
         $totalPages = max(1, (int) ceil($total / $perPage));
         // 越界页码钳制到末页，避免空表格
         $page = min($page, $totalPages);
-
-        $q = DB::query('comments');
-        if ($status !== 'all') {
-            $q->where('status', '=', $status);
-        }
-        $comments = $q->orderBy('id', 'DESC')->limit($perPage, ($page - 1) * $perPage)->select();
+        $comments = self::filtered($status)->orderBy('id', 'DESC')->limit($perPage, ($page - 1) * $perPage)->select();
 
         // 用户与文章映射
         $users = array();
@@ -41,10 +32,56 @@ class AdminComment
             $posts[(int) $r['id']] = $r['title'];
         }
 
+        list($fFrom, $fTo) = filter_date_range();
         Admin::render('评论管理', 'comment_list', array(
             'comments' => $comments, 'status' => $status, 'page' => $page,
-            'totalPages' => $totalPages, 'users' => $users, 'posts' => $posts,
+            'totalPages' => $totalPages, 'total' => $total,
+            'users' => $users, 'posts' => $posts,
+            'fAuthor' => trim(input_text('author', '', 32, 'get')),
+            'fPostId' => input_int('post_id', 0, 'get'),
+            'fFrom'   => $fFrom,
+            'fTo'     => $fTo,
         ));
+    }
+
+    /** 按当前请求筛选条件构造查询（count 与 select 分离调用） */
+    private static function filtered($status)
+    {
+        $query = DB::query('comments');
+        if ($status !== 'all') {
+            $query->where('status', '=', $status);
+        }
+        // 作者：纯数字按用户 ID 精确匹配；否则模糊匹配用户名/昵称反查用户 ID 集合
+        //（个人博客用户量小，全表反查开销可忽，且天然兼容任意字符无需 LIKE 转义）
+        $author = trim(input_text('author', '', 32, 'get'));
+        if ($author !== '') {
+            if (ctype_digit($author)) {
+                $query->where('user_id', '=', (int) $author);
+            } else {
+                $ids = array();
+                $rows = DB::query('users')->select(array('id', 'username', 'nickname'));
+                foreach ($rows as $r) {
+                    if (stripos($r['username'], $author) !== false || stripos($r['nickname'], $author) !== false) {
+                        $ids[] = (int) $r['id'];
+                    }
+                }
+                // 空集合时 whereIn 恒假，直接返回空列表
+                $query->whereIn('user_id', $ids);
+            }
+        }
+        $postId = input_int('post_id', 0, 'get');
+        if ($postId > 0) {
+            $query->where('post_id', '=', $postId);
+        }
+        // 发表时间窗口：首次进入默认"一个月前 ~ 当天"（与日志中心一致）
+        list($from, $to) = filter_date_range();
+        if ($from !== '') {
+            $query->where('created_at', '>=', $from . ' 00:00:00');
+        }
+        if ($to !== '') {
+            $query->where('created_at', '<=', $to . ' 23:59:59');
+        }
+        return $query;
     }
 
     /** 评论审核（通过/驳回） */

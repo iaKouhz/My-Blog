@@ -242,6 +242,28 @@ function input_source($source)
 }
 
 /**
+ * 列表日期范围筛选生效窗口（日志中心/评论管理共用，GET 参数 from/to）
+ * 首次进入（两参数均未提交）默认"一个月前 ~ 当天"；
+ * 已显式提交（含清空为空值）则严格按提交值，单侧为空即该侧不限
+ *
+ * @return array [from, to]，yyyy-MM-dd 或空字符串
+ */
+function filter_date_range()
+{
+    $src = input_source('get');
+    $from = input_text('from', '', 10, 'get');
+    $to = input_text('to', '', 10, 'get');
+    $from = preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) ? $from : '';
+    $to = preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) ? $to : '';
+    // 仅作存在性判断区分"首次进入"与"清空后提交"，参数值本身仍经校验器取得
+    if ($from === '' && $to === '' && !isset($src['from']) && !isset($src['to'])) {
+        $to = date('Y-m-d');
+        $from = date('Y-m-d', strtotime('-1 month'));
+    }
+    return array($from, $to);
+}
+
+/**
  * 邮箱脱敏：a***@x.com
  *
  * @param string $email 邮箱
