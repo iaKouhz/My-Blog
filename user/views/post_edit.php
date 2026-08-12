@@ -146,7 +146,9 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
         // 预览内容主题：必须显式指定本地 path —— Vditor 默认从 unpkg CDN 拉取 content-theme css，
         // 不指定则暗色下 dark.css 加载失败，wysiwyg/ir/预览区文字呈黑底黑字
         preview: {
-            math: { engine: 'katex' },
+            // 引擎名必须为官方大小写 "KaTeX"：mathRender 内部以 === "KaTeX" 严格匹配，
+            // 写成小写 katex 会导致 KaTeX/MathJax 两个分支都不命中，公式完全不渲染
+            math: { engine: 'KaTeX' },
             theme: {
                 current: isDark ? 'dark' : 'light',
                 path: <?php echo json_encode(assets_url('vendor/vditor/dist/css/content-theme')); ?>

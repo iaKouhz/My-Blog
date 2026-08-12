@@ -1,3 +1,11 @@
 # Qoder IDE 工作目录
 .qoder/
 my-blog.zip
+
+# 安装程序生成的敏感文件（含数据库凭据与站点密钥），禁止入库
+config.php
+install/install.lock
+
+# 用户上传内容不入库；保留 .htaccess 禁止 PHP 执行的安全规则
+uploads/*
+!uploads/.htaccess
