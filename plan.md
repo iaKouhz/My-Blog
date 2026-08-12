@@ -70,7 +70,7 @@
 │       └── README.md      ← 阿里云开通指引
 ├── assets/
 │   ├── vendor/            ← 本地化第三方资源
-│   │   ├── vditor/        ← dist 全套（含字体）
+│   │   ├── vditor/        ← dist 裁剪版（裁剪清单见 assets/vendor/README.md）
 │   │   ├── katex/         ← css/js/fonts 全套
 │   │   └── highlight.js/  ← 按需语言包 + 主题 css
 │   └── admin/             ← 后台自有 css/js
@@ -383,7 +383,7 @@ id / name / slug UNIQUE / description / sort。
 | Editor.md | 不采用 | 已停止维护，存在安全隐患 |
 
 实施要点：
-- `assets/vendor/vditor/` 本地化 dist 全套（含其字体/图标资源）。
+- `assets/vendor/vditor/` 本地化 dist 裁剪版（保留运行必需的 lute/katex/highlight.js/icons/i18n 与字体/图标资源；已移除 dev/类型文件、mathjax 与未使用的图表语法懒加载库，清单见 assets/vendor/README.md）。
 - 后台文章编辑页集成 Vditor（Markdown 模式），数据库存 Markdown 原文。
 - 前台渲染：`core/Markdown.php` 将 Markdown 转 HTML（自研轻量解析或纯 PHP 单文件解析库），随后用**基于 DOMDocument 的标签/属性白名单**做服务端 XSS 过滤；KaTeX 与 highlight.js 本地化渲染公式与代码块（`$...$`、`$$...$$`、围栏代码块）。
 

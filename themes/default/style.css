@@ -597,6 +597,8 @@ p { margin-bottom: 1.2em; }
     .article-header { padding-top: 36px; }
     .auth-card { padding: 24px 20px; margin: 24px 16px; }
     .auth-site-name { margin: 24px 16px -12px; font-size: 20px; }
+    /* 侧栏抽屉内账号入口按钮字号收敛：18px 相对 15px 侧栏文字偏重 */
+    .sidebar-auth-btn { font-size: 15px; }
 }
 
 @media (max-width: 480px) {
@@ -604,6 +606,17 @@ p { margin-bottom: 1.2em; }
     .article-title { font-size: 22px; }
     .post-card-title { font-size: 19px; }
     .article-content { font-size: 15px; }
+    /* 标题长词（长英文/URL）防撑破卡片：正文已有 word-break，标题补齐 */
+    .post-card-title, .article-title, .page-title, .banner-title { overflow-wrap: break-word; }
+    /* 元信息窄屏隐藏 · 分隔符：避免 flex-wrap 把分隔符换到行首，靠 gap 留白 */
+    .post-card-meta .meta-divider, .article-meta .meta-divider { display: none; }
+    .post-card-meta, .article-meta { gap: 10px; }
+    /* iOS Safari 对 <16px 输入框聚焦会自动放大页面，统一抬到 16px */
+    .sidebar-search .search-field,
+    .auth-form input, .auth-form textarea,
+    .comment-form input, .comment-form textarea { font-size: 16px; }
+    /* 正文工具栏触控目标加宽（36px 偏小） */
+    .toolbar-btn { width: 40px; height: 40px; }
 }
 
 /* ===== 滚动条与选区 ===== */

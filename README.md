@@ -98,3 +98,4 @@ layui 缺失时后台回退为原生表单提交与原生 confirm，编辑器回
 - 主题开发指南：`themes/README.md`
 - 阿里云短信接入指引：`plugins/aliyun-sms/README.md`
 - 本地化资源登记：`assets/vendor/README.md`
+- 本地化资源升级作业手册：`assets/vendor/UPGRADE.md`

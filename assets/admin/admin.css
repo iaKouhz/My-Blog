@@ -183,7 +183,9 @@ button.layui-btn[disabled] { opacity: .55; cursor: not-allowed; }
     background: var(--bg-side); color: var(--text-secondary); font-weight: 600;
     white-space: nowrap; font-size: 13px;
 }
-.layui-table th, .layui-table td { border-color: var(--border-color); font-size: 13px; word-break: break-word; }
+/* td 用 overflow-wrap 而非 word-break:break-word：后者参与 min-content 计算，
+   窄屏下 auto 布局会把列压到一字一断；overflow-wrap 只在必要时断词，列宽按内容自然分配 */
+.layui-table th, .layui-table td { border-color: var(--border-color); font-size: 13px; overflow-wrap: break-word; }
 .layui-table[lay-skin=line] td, .layui-table[lay-skin=line] th { border-color: var(--border-color); }
 .layui-table tbody tr:hover { background: rgba(74, 124, 126, .05); }
 /* 表格内可编辑行的输入框（如分类管理） */
@@ -191,7 +193,8 @@ button.layui-btn[disabled] { opacity: .55; cursor: not-allowed; }
 .empty-row td { text-align: center; color: var(--text-secondary); padding: 26px 0; }
 
 /* ===== 徽章 ===== */
-.layui-badge { border-radius: 9px; font-weight: 400; vertical-align: middle; }
+/* 徽章文字禁止折行：layui-badge 固定 18px 高，文字一旦断行会溢出徽章底色 */
+.layui-badge { border-radius: 9px; font-weight: 400; vertical-align: middle; white-space: nowrap; }
 .layui-badge.layui-bg-green { background-color: var(--success) !important; }
 .layui-badge.layui-bg-warn { background-color: var(--warn) !important; }
 .layui-badge.layui-bg-red { background-color: var(--danger) !important; }
@@ -453,6 +456,8 @@ html.darkmode ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
     .layui-layout-admin .layui-body.admin-body { margin-left: 0; }
     .side-toggle { display: inline-flex; }
     .admin-main { padding: 14px; }
+    /* 移动端表格保底宽度：列不被过度压缩（防时间/徽章列一字一断），超出走 table-wrap 横向滚动 */
+    .table-wrap .layui-table { min-width: 640px; }
     .top-title { font-size: 15px; }
     .admin-top-nav .layui-nav-item a { font-size: 12px; }
     .top-role { display: none; }
@@ -460,4 +465,6 @@ html.darkmode ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 @media (max-width: 480px) {
     .stat-item { padding: 12px; }
     .card { padding: 14px; }
+    /* filter-bar 内硬编码宽度（如封面路径 320px）在极窄屏收敛，防溢出 */
+    .filter-bar .layui-input { max-width: 100%; }
 }

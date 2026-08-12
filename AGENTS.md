@@ -55,7 +55,7 @@
 3. **默认插件**：`smtp-mailer` 与 `aliyun-sms` 预装但**默认禁用**；二者必须实现为符合 `plan.md` §7 规范的标准插件（通过 Hook 接入，禁止在内核中硬编码其逻辑）；验证码发送插件必须经 `register_verify_provider()` 声明渠道能力，内核对验证码能力的探测与策略读取仅认声明，禁止硬编码插件名。
 4. **阿里云短信**：必须用手写的纯 PHP RPC 签名客户端（HMAC-SHA1，仅依赖 cURL），禁止引入阿里云官方 SDK（其依赖 Composer/Guzzle）。
 5. **审计日志**：所有非游客操作及登录成败、锁定/解锁、角色变更、验证码发送与核验必须经 `blog_log()` 记录（含 category 与 result）；插件日志必须走 `plugin_log()`；日志内容必须脱敏。
-6. **编辑器**：后台编辑器固定使用本地化的 **Vditor**；未经用户明确同意不得替换。
+6. **编辑器**：后台编辑器固定使用本地化的 **Vditor**（当前版本 3.11.3，已按 `assets/vendor/README.md` 裁剪清单瘦身）；未经用户明确同意不得替换。升级 Vditor 版本时，**必须先按该裁剪清单对新 dist 重新执行裁剪**（移除 dev/类型文件、mathjax 与未使用的图表语法懒加载库），禁止将裁剪过的文件恢复为官方完整包后直接提交；升级流程与验证方法见 `assets/vendor/UPGRADE.md`。
 7. **密码过期功能**：必须预留完整实现（`users.password_changed_at` + `pwd_expire_enabled`/`pwd_expire_days` 开关 + 登录后强制改密拦截），且**默认必须关闭**（`pwd_expire_enabled=0`）；禁止在未获用户明确要求时默认开启。密码历史功能（`pwd_history_count`）同为预留、默认关闭。
 8. **安全默认值**：安装程序写入的安全项默认值必须与 plan.md §4 一致（锁定 5 次/10 分钟、会话超时 30 分钟、日志留存 180 天、自定义 IP 标头关闭 `ip_header_enabled=0`、debug=0）；禁止调低这些默认安全水位。
 

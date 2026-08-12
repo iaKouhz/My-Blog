@@ -87,7 +87,8 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
 
     <div class="layui-form-item">
         <label class="v-label">正文（Markdown）</label>
-        <div id="vditor" style="<?php echo $vditorAvailable ? '' : 'display:none'; ?>"></div>
+        <?php // visibility:hidden + min-height：编辑器 JS/CSS 就绪前先隐身占位（防无样式 FOUC 与高度跳动），Vditor after 回调再显示 ?>
+        <div id="vditor" style="<?php echo $vditorAvailable ? 'visibility:hidden;min-height:420px' : 'display:none'; ?>"></div>
         <textarea name="content" id="contentArea" class="layui-textarea" style="max-width:100%;min-height:360px;width:100%"
             <?php echo $vditorAvailable ? 'hidden' : ''; ?>><?php echo $post ? e($post['content']) : ''; ?></textarea>
     </div>
@@ -173,7 +174,11 @@ $isPageOn = $post && (int) $post['is_page'] === 1;
                 return JSON.stringify({ code: 1, msg: resp.msg || '上传失败' });
             }
         },
-        input: function (value) { area.value = value; }
+        input: function (value) { area.value = value; },
+        // 编辑器就绪（含样式应用）后显示编辑区，消除加载期的无样式闪现
+        after: function () {
+            document.getElementById('vditor').style.visibility = 'visible';
+        }
     });
     // 提交前确保内容同步
     area.form.addEventListener('submit', function () {

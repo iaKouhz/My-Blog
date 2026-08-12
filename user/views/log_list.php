@@ -72,7 +72,8 @@ if ($fFrom !== '' && $fTo !== '') {
             <td><?php echo e($log['action']); ?></td>
             <td><?php echo $log['result'] === 'success' ? '<span class="layui-badge layui-bg-green">成功</span>' : '<span class="layui-badge layui-bg-red">失败</span>'; ?></td>
             <td><?php echo e($log['ip']); ?></td>
-            <td style="max-width:320px;word-break:break-all"><?php echo e(mb_substr((string) $log['detail'], 0, 120)); ?></td>
+            <?php // min-width 保底：break-all 使 min-content 缩到 1 字符，窄屏会被其他列挤到只剩几字宽；超出走 table-wrap 横向滚动 ?>
+            <td style="min-width:200px;max-width:320px;word-break:break-all"><?php echo e(mb_substr((string) $log['detail'], 0, 120)); ?></td>
         </tr>
         <?php endforeach; ?>
         </tbody>
