@@ -298,9 +298,9 @@ class Front
             }
         }
 
-        // 浏览数 +1
+        // 浏览数 +1：原子自增替代"读-改-写"，避免并发请求读到同一旧值互相覆盖丢计数
         DB::query('posts')->where('id', '=', (int) $post['id'])
-            ->update(array('views' => (int) $post['views'] + 1));
+            ->increment('views', 1);
 
         $author = DB::query('users')->where('id', '=', (int) $post['author_id'])
             ->first(array('id', 'username', 'nickname', 'avatar', 'is_deleted'));
