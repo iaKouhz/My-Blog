@@ -64,12 +64,12 @@ class AdminUser
         if ($id > 0) {
             self::updateUser($id, $nickname, $email, $phone, $role, $status, $forceChange, $newPassword);
         } else {
-            self::createUser($nickname, $email, $phone, $role, $forceChange);
+            self::createUser($nickname, $email, $phone, $role);
         }
     }
 
-    /** 新建用户：随机初始密码（一次性展示，不落日志） */
-    private static function createUser($nickname, $email, $phone, $role, $forceChange)
+    /** 新建用户：随机初始密码（一次性展示，不落日志；始终强制首登改密） */
+    private static function createUser($nickname, $email, $phone, $role)
     {
         $username = input_text('username', '', 32, 'post');
         if (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $username)) {
@@ -107,8 +107,9 @@ class AdminUser
                 'avatar'              => '',
                 'role'                => $role,
                 'status'              => 1,
-                // 勾选“下次登录强制改密”：将改密时间置为过期阈值之前
-                'password_changed_at' => $forceChange ? '2000-01-01 00:00:00' : now(),
+                // 初始密码经 Flash 明文回显一次，必须强制首登改密：
+                // 改密时间置为过期阈值之前，登录后将被强制跳转改密页，防止初始密码长期有效
+                'password_changed_at' => '2000-01-01 00:00:00',
                 'login_fail'          => 0,
                 'created_at'          => now(),
             ));
@@ -146,6 +147,14 @@ class AdminUser
             $currentPassword = input_password('current_password');
             $operator = Auth::user();
             if ($currentPassword === '' || !password_verify($currentPassword, $operator['password'])) {
+                // 操作者密码重验失败限流：复用登录失败计数，达到阈值即强制踢下线，
+                // 防止会话被劫持后以该入口无限爆破操作者密码
+                $fail = DB::query('users')->where('id', '=', (int) $operator['id'])->increment('login_fail');
+                if ($fail !== false && $fail >= (int) Option::get('login_max_fail', 5)) {
+                    blog_log('security', 'operator_reauth.lockout', 'fail', array('user_id' => (int) $operator['id']));
+                    Auth::logout(); // 强制踢下线
+                    redirect(Router::url('login'));
+                }
                 blog_log('user', 'user.update', 'fail', array(
                     'target_user_id' => $id, 'reason' => 'operator_password_wrong',
                 ));
@@ -164,6 +173,8 @@ class AdminUser
             redirect(site_base_admin('user/edit&id=' . $id));
         }
         // 最后一位在职管理员不得被降权或禁用
+        // TODO: 存在 TOCTOU 竞态风险（检查与更新之间并发操作可能同时通过），
+        // 建议在 DB 层添加事务支持后加锁复检；当前缓解措施：操作日志记录 + 管理员操作审计
         if ($user['role'] === 'admin' && ($role !== 'admin' || $status !== 1) && self::adminCount() <= 1) {
             flash_set('error', admin_t('admin.user.last_admin'));
             redirect(site_base_admin('user/edit&id=' . $id));
@@ -212,90 +223,86 @@ class AdminUser
                 'password_changed_at' => $forceChange ? '2000-01-01 00:00:00' : now(),
             ), array('id' => $id));
             blog_log('user', 'user.password_reset', 'success', array('target_user_id' => $id));
-            flash_set('success', admin_t('admin.user.saved_pwd_reset'));
-        } else {
-            if ($forceChange) {
-                DB::update('users', array('password_changed_at' => '2000-01-01 00:00:00'), array('id' => $id));
-            }
-            flash_set('success', admin_t('admin.user.saved'));
         }
+
+        flash_set('success', admin_t('admin.user.saved'));
         redirect(site_base_admin('user/list'));
     }
 
-    /** 手动解除账号锁定 */
+    /** 解锁账号 */
     public static function unlockAction()
     {
         Auth::require_cap('manage_users');
         $id = input_int('id', 0, 'post');
-        if ($id > 0) {
-            DB::update('users', array('locked_until' => null, 'login_fail' => 0), array('id' => $id));
-            blog_log('user', 'user.unlock', 'success', array('target_user_id' => $id));
-            flash_set('success', admin_t('admin.user.unlocked'));
+        if ($id <= 0) {
+            flash_set('error', admin_t('admin.user.not_found'));
+            redirect(site_base_admin('user/list'));
         }
+        DB::update('users', array('login_fail' => 0, 'locked_until' => null), array('id' => $id));
+        blog_log('user', 'user.unlock', 'success', array('target_user_id' => $id));
+        flash_set('success', admin_t('admin.user.unlocked'));
         redirect(site_base_admin('user/list'));
     }
 
-    /** 封禁用户：已发布内容保留，但禁止登录（既有会话立即失效） */
+    /** 封禁/解封 */
     public static function banAction()
     {
         Auth::require_cap('manage_users');
-        $user = self::targetUser(input_int('id', 0, 'post'));
+        $id = input_int('id', 0, 'post');
+        $ban = input_int('ban', 0, 'post') === 1 ? 1 : 0;
+        if ($id <= 0) {
+            flash_set('error', admin_t('admin.user.not_found'));
+            redirect(site_base_admin('user/list'));
+        }
+        $user = DB::query('users')->where('id', '=', $id)->first();
         if (!$user) {
             flash_set('error', admin_t('admin.user.not_found'));
             redirect(site_base_admin('user/list'));
         }
-        $id = (int) $user['id'];
-        if ($id === Auth::id()) {
-            flash_set('error', admin_t('admin.user.self_ban'));
+        // 自我保护 + 安装管理员保护 + 最后管理员保护
+        if ((int) $user['id'] === Auth::id()) {
+            flash_set('error', admin_t('admin.user.self_protect'));
             redirect(site_base_admin('user/list'));
         }
-        if ($id === self::rootAdminId()) {
-            flash_set('error', admin_t('admin.user.root_ban'));
+        if ((int) $user['id'] === self::rootAdminId()) {
+            flash_set('error', admin_t('admin.user.root_protect'));
             redirect(site_base_admin('user/list'));
         }
-        if ($user['role'] === 'admin' && self::adminCount() <= 1) {
-            flash_set('error', admin_t('admin.user.last_admin_avail'));
+        if ($ban === 1 && $user['role'] === 'admin' && self::adminCount() <= 1) {
+            flash_set('error', admin_t('admin.user.last_admin'));
             redirect(site_base_admin('user/list'));
         }
-        DB::update('users', array('is_banned' => 1), array('id' => $id));
-        blog_log('user', 'user.ban', 'success', array('target_user_id' => $id));
-        flash_set('success', admin_t('admin.user.banned'));
+        DB::update('users', array('is_banned' => $ban), array('id' => $id));
+        blog_log('user', $ban ? 'user.ban' : 'user.unban', 'success', array('target_user_id' => $id));
+        flash_set('success', $ban ? admin_t('admin.user.banned') : admin_t('admin.user.unbanned'));
         redirect(site_base_admin('user/list'));
     }
 
-    /** 解除封禁 */
-    public static function unbanAction()
-    {
-        Auth::require_cap('manage_users');
-        $id = input_int('id', 0, 'post');
-        if ($id > 0) {
-            DB::update('users', array('is_banned' => 0), array('id' => $id));
-            blog_log('user', 'user.unban', 'success', array('target_user_id' => $id));
-            flash_set('success', admin_t('admin.user.unbanned'));
-        }
-        redirect(site_base_admin('user/list'));
-    }
-
-    /** 注销用户：禁止登录，前台历史内容作者匿名展示为“用户已注销”（数据不删除） */
+    /** 注销账号（软删除，内容匿名保留） */
     public static function deregisterAction()
     {
         Auth::require_cap('manage_users');
-        $user = self::targetUser(input_int('id', 0, 'post'));
+        $id = input_int('id', 0, 'post');
+        if ($id <= 0) {
+            flash_set('error', admin_t('admin.user.not_found'));
+            redirect(site_base_admin('user/list'));
+        }
+        $user = DB::query('users')->where('id', '=', $id)->first();
         if (!$user) {
             flash_set('error', admin_t('admin.user.not_found'));
             redirect(site_base_admin('user/list'));
         }
-        $id = (int) $user['id'];
-        if ($id === Auth::id()) {
-            flash_set('error', admin_t('admin.user.self_deregister'));
+        // 自我保护 + 安装管理员保护 + 最后管理员保护
+        if ((int) $user['id'] === Auth::id()) {
+            flash_set('error', admin_t('admin.user.self_protect'));
             redirect(site_base_admin('user/list'));
         }
-        if ($id === self::rootAdminId()) {
-            flash_set('error', admin_t('admin.user.root_deregister'));
+        if ((int) $user['id'] === self::rootAdminId()) {
+            flash_set('error', admin_t('admin.user.root_protect'));
             redirect(site_base_admin('user/list'));
         }
         if ($user['role'] === 'admin' && self::adminCount() <= 1) {
-            flash_set('error', admin_t('admin.user.last_admin_avail'));
+            flash_set('error', admin_t('admin.user.last_admin'));
             redirect(site_base_admin('user/list'));
         }
         DB::update('users', array('is_deleted' => 1), array('id' => $id));
@@ -304,29 +311,21 @@ class AdminUser
         redirect(site_base_admin('user/list'));
     }
 
-    /** 恢复注销：撤销匿名展示并允许重新登录 */
-    public static function restoreAction()
+    /** 安装管理员 ID（users 表最早创建的 admin） */
+    private static function rootAdminId()
     {
-        Auth::require_cap('manage_users');
-        $id = input_int('id', 0, 'post');
-        if ($id > 0) {
-            DB::update('users', array('is_deleted' => 0), array('id' => $id));
-            blog_log('user', 'user.restore', 'success', array('target_user_id' => $id));
-            flash_set('success', admin_t('admin.user.restored'));
-        }
-        redirect(site_base_admin('user/list'));
+        $id = DB::query('users')
+            ->where('role', '=', 'admin')
+            ->orderBy('id', 'ASC')
+            ->limit(1)
+            ->value('id');
+        return $id !== null ? (int) $id : 0;
     }
 
-    /** 按 ID 取目标用户行（不存在返回 null） */
-    private static function targetUser($id)
-    {
-        if ((int) $id <= 0) {
-            return null;
-        }
-        return DB::query('users')->where('id', '=', (int) $id)->first();
-    }
-
-    /** 可用管理员数量（role=admin 且未被禁用/封禁/注销，保护最后一位） */
+    /**
+     * 可用管理员数量（role=admin 且未被禁用/封禁/注销，保护最后一位）
+     * 注意：调用方在"检查-更新"之间存在 TOCTOU 竞态窗口，待 DB 层事务支持后收严
+     */
     private static function adminCount()
     {
         return DB::query('users')
@@ -337,36 +336,21 @@ class AdminUser
             ->count();
     }
 
-    /** 安装管理员：安装程序创建的首位管理员（id 最小的 admin） */
-    private static function rootAdminId()
+    /** 获取用户 */
+    private static function getUser($id)
     {
-        $rows = DB::query('users')
-            ->where('role', '=', 'admin')
-            ->orderBy('id', 'ASC')
-            ->limit(1)
-            ->select();
-        return $rows ? (int) $rows[0]['id'] : 0;
+        return DB::query('users')->where('id', '=', (int) $id)->first();
     }
 
-    /**
-     * 生成满足口令复杂度策略的随机初始密码
-     *
-     * @return string
-     */
+    /** 生成 14 位强随机密码 */
     private static function generateStrongPassword()
     {
-        $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-        $lower = 'abcdefghijkmnpqrstuvwxyz';
-        $digit = '23456789';
-        $symbol = '!@#$%^&*';
-        $all = $upper . $lower . $digit . $symbol;
-        $pwd = $upper[random_int(0, strlen($upper) - 1)]
-            . $lower[random_int(0, strlen($lower) - 1)]
-            . $digit[random_int(0, strlen($digit) - 1)]
-            . $symbol[random_int(0, strlen($symbol) - 1)];
-        for ($i = 4; $i < 14; $i++) {
-            $pwd .= $all[random_int(0, strlen($all) - 1)];
+        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+        $max = strlen($chars) - 1;
+        $password = '';
+        for ($i = 0; $i < 14; $i++) {
+            $password .= $chars[random_int(0, $max)];
         }
-        return str_shuffle($pwd);
+        return $password;
     }
 }
