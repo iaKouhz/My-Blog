@@ -371,6 +371,16 @@ $step = ins_step();
 $message = '';
 $messageType = '';
 
+// 安装令牌校验：步骤三/四必须持有步骤二（save_db 成功）签发的令牌，
+// 防止站点部署后、管理员完成安装前的窗口期被第三方直接跳到步骤三抢装接管站点
+if (in_array($step, array(3, 4), true)) {
+    $token = input_text('token', '', 64, 'get');
+    $savedToken = isset($_SESSION['install_token']) ? (string) $_SESSION['install_token'] : '';
+    if ($savedToken === '' || !hash_equals($savedToken, $token)) {
+        die('Invalid install token');
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     ins_csrf_check();
     $action = input_enum('action', array('test_db', 'save_db', 'do_install'), '', 'post');
@@ -401,7 +411,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'prefix' => $dbPrefix,
             );
         } catch (Exception $ex) {
-            $message = ins_t('install.db.connect_fail') . $ex->getMessage();
+            // 错误详情只写服务器日志，不回显到页面（含主机/账号/DSN 等敏感信息）
+            error_log('[install] error: ' . $ex->getMessage());
+            $message = ins_t('install.db.connect_fail') . '操作失败，请检查配置';
             $messageType = 'err';
         }
         $step = 2;
@@ -428,10 +440,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'user' => $dbUser, 'pass' => $passUse,
                 'name' => $dbName, 'prefix' => $dbPrefix,
             );
-            header('Location: ' . ins_base() . '/index.php?step=3');
+            // 步骤二保存成功：签发安装令牌（Session 持有 + 落盘 install.token 供排查），
+            // 步骤三/四须携带该令牌访问，防止安装未完成时被第三方抢跑接管站点
+            $installToken = bin2hex(random_bytes(16));
+            file_put_contents(dirname(__FILE__) . '/install.token', $installToken);
+            $_SESSION['install_token'] = $installToken;
+            header('Location: ' . ins_base() . '/index.php?step=3&token=' . $installToken);
             exit;
         } catch (Exception $ex) {
-            $message = ins_t('install.db.connect_fail') . $ex->getMessage();
+            // 错误详情只写服务器日志，不回显到页面（含主机/账号/DSN 等敏感信息）
+            error_log('[install] error: ' . $ex->getMessage());
+            $message = ins_t('install.db.connect_fail') . '操作失败，请检查配置';
             $messageType = 'err';
             $step = 2;
         }
@@ -490,9 +509,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         'rewrite_enabled' => isset($_POST['rewrite_enabled']) ? '1' : '0',
                     ));
                     unset($_SESSION['ins_db']);
+                    // 安装完成：安装令牌一次性作废（install.lock 另作主守卫）
+                    unset($_SESSION['install_token']);
+                    if (is_file(dirname(__FILE__) . '/install.token')) {
+                        unlink(dirname(__FILE__) . '/install.token');
+                    }
                     $step = 4;
                 } catch (Exception $ex) {
-                    $message = ins_t('install.do.fail') . $ex->getMessage();
+                    // 错误详情只写服务器日志，不回显到页面（含建表 SQL/路径等敏感信息）
+                    error_log('[install] error: ' . $ex->getMessage());
+                    $message = ins_t('install.do.fail') . '操作失败，请检查配置';
                     $messageType = 'err';
                     $step = 3;
                 }
@@ -634,7 +660,8 @@ th{background:#F0EDE5;color:#6B6B6B;white-space:nowrap}
 </form>
 
 <?php elseif ($step === 3): ?>
-<form method="post" action="<?php echo ins_e(ins_base()); ?>/index.php?step=3">
+<?php // 表单 action 携带安装令牌（POST 提交时仍需通过步骤三/四的令牌校验） ?>
+<form method="post" action="<?php echo ins_e(ins_base()); ?>/index.php?step=3&token=<?php echo ins_e(isset($_SESSION['install_token']) ? $_SESSION['install_token'] : ''); ?>">
     <input type="hidden" name="_csrf" value="<?php echo ins_e(ins_csrf()); ?>">
     <label><?php echo ins_e(ins_t('install.admin.site_name')); ?></label>
     <input type="text" name="site_name" value="<?php echo ins_e(ins_t('install.do.default_site_name')); ?>">
