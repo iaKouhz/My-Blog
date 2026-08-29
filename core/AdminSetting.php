@@ -299,8 +299,13 @@ class AdminSetting
         $isRelative = strpos($url, '/') === 0 && strpos($url, '//') !== 0;
         $isAbsolute = (bool) preg_match('#^https?://#i', $url);
         // 普通串：不含协议冒号，且不得以 / 或 \ 开头——//evil.com 是协议相对地址，
-        // 浏览器会按当前协议跳站外，必须走 http(s) 显式白名单而非由此放行
-        $isPlain = strpos($url, ':') === false && strpos($url, '/') !== 0 && strpos($url, '\\') !== 0;
+        // 浏览器会按当前协议跳站外，必须走 http(s) 显式白名单而非由此放行；
+        // 另拒绝 %/&/空白控制符等可编码实体变体（如 javas&#99;ript: 经浏览器解码后可执行），
+        // 不依赖输出侧转义兜底
+        $isPlain = strpos($url, ':') === false
+            && strpos($url, '/') !== 0
+            && strpos($url, '\\') !== 0
+            && !preg_match('/[%&\x00-\x20]/', $url);
         if (!$isRelative && !$isAbsolute && !$isPlain) {
             return null;
         }
