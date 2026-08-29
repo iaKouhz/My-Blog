@@ -223,86 +223,90 @@ class AdminUser
                 'password_changed_at' => $forceChange ? '2000-01-01 00:00:00' : now(),
             ), array('id' => $id));
             blog_log('user', 'user.password_reset', 'success', array('target_user_id' => $id));
+            flash_set('success', admin_t('admin.user.saved_pwd_reset'));
+        } else {
+            if ($forceChange) {
+                DB::update('users', array('password_changed_at' => '2000-01-01 00:00:00'), array('id' => $id));
+            }
+            flash_set('success', admin_t('admin.user.saved'));
         }
-
-        flash_set('success', admin_t('admin.user.saved'));
         redirect(site_base_admin('user/list'));
     }
 
-    /** 解锁账号 */
+    /** 手动解除账号锁定 */
     public static function unlockAction()
     {
         Auth::require_cap('manage_users');
         $id = input_int('id', 0, 'post');
-        if ($id <= 0) {
-            flash_set('error', admin_t('admin.user.not_found'));
-            redirect(site_base_admin('user/list'));
+        if ($id > 0) {
+            DB::update('users', array('locked_until' => null, 'login_fail' => 0), array('id' => $id));
+            blog_log('user', 'user.unlock', 'success', array('target_user_id' => $id));
+            flash_set('success', admin_t('admin.user.unlocked'));
         }
-        DB::update('users', array('login_fail' => 0, 'locked_until' => null), array('id' => $id));
-        blog_log('user', 'user.unlock', 'success', array('target_user_id' => $id));
-        flash_set('success', admin_t('admin.user.unlocked'));
         redirect(site_base_admin('user/list'));
     }
 
-    /** 封禁/解封 */
+    /** 封禁用户：已发布内容保留，但禁止登录（既有会话立即失效） */
     public static function banAction()
     {
         Auth::require_cap('manage_users');
-        $id = input_int('id', 0, 'post');
-        $ban = input_int('ban', 0, 'post') === 1 ? 1 : 0;
-        if ($id <= 0) {
-            flash_set('error', admin_t('admin.user.not_found'));
-            redirect(site_base_admin('user/list'));
-        }
-        $user = DB::query('users')->where('id', '=', $id)->first();
+        $user = self::targetUser(input_int('id', 0, 'post'));
         if (!$user) {
             flash_set('error', admin_t('admin.user.not_found'));
             redirect(site_base_admin('user/list'));
         }
-        // 自我保护 + 安装管理员保护 + 最后管理员保护
-        if ((int) $user['id'] === Auth::id()) {
-            flash_set('error', admin_t('admin.user.self_protect'));
+        $id = (int) $user['id'];
+        if ($id === Auth::id()) {
+            flash_set('error', admin_t('admin.user.self_ban'));
             redirect(site_base_admin('user/list'));
         }
-        if ((int) $user['id'] === self::rootAdminId()) {
-            flash_set('error', admin_t('admin.user.root_protect'));
-            redirect(site_base_admin('user/list'));
-        }
-        if ($ban === 1 && $user['role'] === 'admin' && self::adminCount() <= 1) {
-            flash_set('error', admin_t('admin.user.last_admin'));
-            redirect(site_base_admin('user/list'));
-        }
-        DB::update('users', array('is_banned' => $ban), array('id' => $id));
-        blog_log('user', $ban ? 'user.ban' : 'user.unban', 'success', array('target_user_id' => $id));
-        flash_set('success', $ban ? admin_t('admin.user.banned') : admin_t('admin.user.unbanned'));
-        redirect(site_base_admin('user/list'));
-    }
-
-    /** 注销账号（软删除，内容匿名保留） */
-    public static function deregisterAction()
-    {
-        Auth::require_cap('manage_users');
-        $id = input_int('id', 0, 'post');
-        if ($id <= 0) {
-            flash_set('error', admin_t('admin.user.not_found'));
-            redirect(site_base_admin('user/list'));
-        }
-        $user = DB::query('users')->where('id', '=', $id)->first();
-        if (!$user) {
-            flash_set('error', admin_t('admin.user.not_found'));
-            redirect(site_base_admin('user/list'));
-        }
-        // 自我保护 + 安装管理员保护 + 最后管理员保护
-        if ((int) $user['id'] === Auth::id()) {
-            flash_set('error', admin_t('admin.user.self_protect'));
-            redirect(site_base_admin('user/list'));
-        }
-        if ((int) $user['id'] === self::rootAdminId()) {
-            flash_set('error', admin_t('admin.user.root_protect'));
+        if ($id === self::rootAdminId()) {
+            flash_set('error', admin_t('admin.user.root_ban'));
             redirect(site_base_admin('user/list'));
         }
         if ($user['role'] === 'admin' && self::adminCount() <= 1) {
-            flash_set('error', admin_t('admin.user.last_admin'));
+            flash_set('error', admin_t('admin.user.last_admin_avail'));
+            redirect(site_base_admin('user/list'));
+        }
+        DB::update('users', array('is_banned' => 1), array('id' => $id));
+        blog_log('user', 'user.ban', 'success', array('target_user_id' => $id));
+        flash_set('success', admin_t('admin.user.banned'));
+        redirect(site_base_admin('user/list'));
+    }
+
+    /** 解除封禁 */
+    public static function unbanAction()
+    {
+        Auth::require_cap('manage_users');
+        $id = input_int('id', 0, 'post');
+        if ($id > 0) {
+            DB::update('users', array('is_banned' => 0), array('id' => $id));
+            blog_log('user', 'user.unban', 'success', array('target_user_id' => $id));
+            flash_set('success', admin_t('admin.user.unbanned'));
+        }
+        redirect(site_base_admin('user/list'));
+    }
+
+    /** 注销用户：禁止登录，前台历史内容作者匿名展示为“用户已注销”（数据不删除） */
+    public static function deregisterAction()
+    {
+        Auth::require_cap('manage_users');
+        $user = self::targetUser(input_int('id', 0, 'post'));
+        if (!$user) {
+            flash_set('error', admin_t('admin.user.not_found'));
+            redirect(site_base_admin('user/list'));
+        }
+        $id = (int) $user['id'];
+        if ($id === Auth::id()) {
+            flash_set('error', admin_t('admin.user.self_deregister'));
+            redirect(site_base_admin('user/list'));
+        }
+        if ($id === self::rootAdminId()) {
+            flash_set('error', admin_t('admin.user.root_deregister'));
+            redirect(site_base_admin('user/list'));
+        }
+        if ($user['role'] === 'admin' && self::adminCount() <= 1) {
+            flash_set('error', admin_t('admin.user.last_admin_avail'));
             redirect(site_base_admin('user/list'));
         }
         DB::update('users', array('is_deleted' => 1), array('id' => $id));
@@ -311,20 +315,31 @@ class AdminUser
         redirect(site_base_admin('user/list'));
     }
 
-    /** 安装管理员 ID（users 表最早创建的 admin） */
-    private static function rootAdminId()
+    /** 恢复注销：撤销匿名展示并允许重新登录 */
+    public static function restoreAction()
     {
-        $id = DB::query('users')
-            ->where('role', '=', 'admin')
-            ->orderBy('id', 'ASC')
-            ->limit(1)
-            ->value('id');
-        return $id !== null ? (int) $id : 0;
+        Auth::require_cap('manage_users');
+        $id = input_int('id', 0, 'post');
+        if ($id > 0) {
+            DB::update('users', array('is_deleted' => 0), array('id' => $id));
+            blog_log('user', 'user.restore', 'success', array('target_user_id' => $id));
+            flash_set('success', admin_t('admin.user.restored'));
+        }
+        redirect(site_base_admin('user/list'));
+    }
+
+    /** 按 ID 取目标用户行（不存在返回 null） */
+    private static function targetUser($id)
+    {
+        if ((int) $id <= 0) {
+            return null;
+        }
+        return DB::query('users')->where('id', '=', (int) $id)->first();
     }
 
     /**
      * 可用管理员数量（role=admin 且未被禁用/封禁/注销，保护最后一位）
-     * 注意：调用方在"检查-更新"之间存在 TOCTOU 竞态窗口，待 DB 层事务支持后收严
+     * 注意：调用方在“检查-更新”之间存在 TOCTOU 竞态窗口，待 DB 层事务支持后收严
      */
     private static function adminCount()
     {
@@ -336,21 +351,36 @@ class AdminUser
             ->count();
     }
 
-    /** 获取用户 */
-    private static function getUser($id)
+    /** 安装管理员：安装程序创建的首位管理员（id 最小的 admin） */
+    private static function rootAdminId()
     {
-        return DB::query('users')->where('id', '=', (int) $id)->first();
+        $rows = DB::query('users')
+            ->where('role', '=', 'admin')
+            ->orderBy('id', 'ASC')
+            ->limit(1)
+            ->select();
+        return $rows ? (int) $rows[0]['id'] : 0;
     }
 
-    /** 生成 14 位强随机密码 */
+    /**
+     * 生成满足口令复杂度策略的随机初始密码
+     *
+     * @return string
+     */
     private static function generateStrongPassword()
     {
-        $chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-        $max = strlen($chars) - 1;
-        $password = '';
-        for ($i = 0; $i < 14; $i++) {
-            $password .= $chars[random_int(0, $max)];
+        $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+        $lower = 'abcdefghijkmnpqrstuvwxyz';
+        $digit = '23456789';
+        $symbol = '!@#$%^&*';
+        $all = $upper . $lower . $digit . $symbol;
+        $pwd = $upper[random_int(0, strlen($upper) - 1)]
+            . $lower[random_int(0, strlen($lower) - 1)]
+            . $digit[random_int(0, strlen($digit) - 1)]
+            . $symbol[random_int(0, strlen($symbol) - 1)];
+        for ($i = 4; $i < 14; $i++) {
+            $pwd .= $all[random_int(0, strlen($all) - 1)];
         }
-        return $password;
+        return str_shuffle($pwd);
     }
 }
