@@ -37,7 +37,58 @@ function is_https()
     if (!empty($_SERVER['HTTPS']) && strtolower($_SERVER['HTTPS']) !== 'off') {
         return true;
     }
-    return isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443;
+    if (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443) {
+        return true;
+    }
+    // 信任受信代理的 X-Forwarded-Proto（需管理员显式开启 ip_header_enabled）：
+    // 反向代理终止 TLS 时后端为 HTTP，若不识别该头，Session Cookie 会丢失 Secure 属性
+    if (Option::get('ip_header_enabled', '0') === '1') {
+        $proto = isset($_SERVER['HTTP_X_FORWARDED_PROTO'])
+            ? strtolower(trim(explode(',', $_SERVER['HTTP_X_FORWARDED_PROTO'])[0])) : '';
+        if ($proto === 'https') {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * 判断 IP 是否落在 CIDR 网段内（IPv4/IPv6 均支持，逐字节按位比较）
+ *
+ * @param string $ip   已验证的 IP
+ * @param string $cidr 形如 10.0.0.0/8 的网段；无 / 前缀时按精确匹配
+ * @return bool
+ */
+function ip_in_cidr($ip, $cidr)
+{
+    $parts = explode('/', (string) $cidr);
+    $subnet = $parts[0];
+    $mask = isset($parts[1]) ? (int) $parts[1] : null;
+    $ipBin = inet_pton($ip);
+    $subnetBin = inet_pton($subnet);
+    // 地址族不同（一为 IPv4 一为 IPv6）或非法地址直接判否
+    if ($ipBin === false || $subnetBin === false || strlen($ipBin) !== strlen($subnetBin)) {
+        return false;
+    }
+    $bits = strlen($ipBin) * 8;
+    if ($mask === null) {
+        $mask = $bits;
+    }
+    if ($mask < 0 || $mask > $bits) {
+        return false;
+    }
+    $whole = intdiv($mask, 8);
+    $rest = $mask % 8;
+    if ($whole > 0 && substr($ipBin, 0, $whole) !== substr($subnetBin, 0, $whole)) {
+        return false;
+    }
+    if ($rest > 0) {
+        $maskByte = chr(0xFF << (8 - $rest) & 0xFF);
+        if ((ord($ipBin[$whole]) & ord($maskByte)) !== (ord($subnetBin[$whole]) & ord($maskByte))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /**
@@ -45,6 +96,8 @@ function is_https()
  * 默认只信 REMOTE_ADDR；仅当 ip_header_enabled=1 且指定标头名时才从标头取值，
  * 且必须经 FILTER_VALIDATE_IP 校验、XFF 逗号链取第一个 IP、非法回退 REMOTE_ADDR。
  * 标头名支持英文逗号分隔多个，在前优先级高，按序依次尝试，某个标头取到合法 IP 即停止
+ * 安全前提：仅当 REMOTE_ADDR 命中可信代理 CIDR 白名单时才采信转发头，
+ * 防止直连客户端伪造 X-Forwarded-For 伪装任意 IP（绕过限流、污染审计日志）
  *
  * @return string
  */
@@ -56,6 +109,19 @@ function client_ip()
     }
     if (Option::get('ip_header_enabled', '0') !== '1') {
         return $remote;
+    }
+    // 可信代理 CIDR 白名单（内网反向代理常见网段）：REMOTE_ADDR 不在白名单内
+    // 说明是客户端直连，一切转发头均可伪造，直接忽略
+    $trustedProxies = array('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '127.0.0.1');
+    $isTrustedProxy = false;
+    foreach ($trustedProxies as $cidr) {
+        if (ip_in_cidr($remote, $cidr)) {
+            $isTrustedProxy = true;
+            break;
+        }
+    }
+    if (!$isTrustedProxy) {
+        return $remote; // 非可信代理直连，忽略一切转发头
     }
     $raw = (string) Option::get('ip_header_name', 'X-Forwarded-For');
     // 多标头：英文逗号分隔，在前优先；逐个尝试，取到合法 IP 即返回
@@ -409,7 +475,8 @@ function site_url_path($path)
 }
 
 /**
- * 静态资源 URL（附文件修改时间版本号，避免浏览器缓存旧资源）
+ * 静态资源 URL（附文件内容哈希版本号，避免浏览器缓存旧资源）
+ * 用 md5_file 而非 filemtime：mtime 会泄露部署时间/文件变更节律等指纹信息
  *
  * @param string $path assets 下相对路径，如 admin/style.css
  * @return string
@@ -419,7 +486,7 @@ function assets_url($path)
     $url = Router::base() . '/assets/' . ltrim($path, '/');
     $file = APP_ROOT . '/assets/' . ltrim($path, '/');
     if (is_file($file)) {
-        $url .= '?v=' . filemtime($file);
+        $url .= '?v=' . substr(md5_file($file), 0, 8);
     }
     return $url;
 }
@@ -490,7 +557,10 @@ function throttle_ip_key($ip)
  */
 function ip_throttle_allow($bucket, $maxPerMinute)
 {
-    $key = 'throttle_' . $bucket . '_' . md5(throttle_ip_key(client_ip()));
+    // HMAC-SHA256 替代裸 MD5：以站点密钥（config.php 的 key）为密钥，
+    // 防止无密钥散列被彩虹表反推客户端 IP；截断为 32 hex 以适配 options.option_key VARCHAR(64)
+    $key = 'throttle_' . $bucket . '_'
+        . substr(hash_hmac('sha256', throttle_ip_key(client_ip()), (string) Config::get('key', 'default-key')), 0, 32);
     $now = time();
     // 3 秒等待：临界区仅一次 options 读写（毫秒级），零超时会把双击提交等
     // 轻微并发误判为限流；等待超时仍取不到才按超限处理（fail-closed）
