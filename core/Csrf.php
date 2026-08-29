@@ -62,4 +62,21 @@ class Csrf
             exit('CSRF token check failed');
         }
     }
+
+    /**
+     * 一次性 CSRF 校验（用于高危操作：改密、改绑、用户管理）
+     * 校验后立即作废 token，下次渲染需重新生成，防止 token 会话级复用导致重放
+     *
+     * @return void
+     */
+    public static function verifyOnceOrDie()
+    {
+        $token = isset($_POST['_csrf']) ? (string) $_POST['_csrf'] : '';
+        $ok = self::check($token);
+        unset($_SESSION['_csrf']); // 无论成败都作废，下次渲染重新生成
+        if (!$ok) {
+            http_response_code(419);
+            exit('CSRF token check failed');
+        }
+    }
 }

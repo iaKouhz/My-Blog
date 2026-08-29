@@ -10,9 +10,21 @@ Options -Indexes
     RewriteRule ^config\.php$ - [F,L]
     RewriteRule ^core/ - [F,L]
 
-    # 插件/主题目录下的 PHP 文件一律禁止直接执行（与 Nginx 规则对齐；
-    # 静态资源不受影响，另有文件头部 APP_BOOT 守卫双重防护）
-    RewriteRule ^(plugins|themes)/.+\.php$ - [F,L]
+    # 安装向导令牌文件禁止 Web 访问（纵深防御；Session 为权威校验）
+    RewriteRule ^install/install\.token$ - [F,L]
+
+    # Let's Encrypt 等 ACME 证书 HTTP-01 签发/续期豁免（必须置于 dotfile 拦截之前）
+    RewriteRule ^\.well-known/ - [L]
+
+    # 拒绝一切 dotfile / 隐藏目录（与 nginx 规则对齐，防 .htaccess/.user.ini/.git 泄露）
+    RewriteRule (^|/)\. - [F,L]
+
+    # 插件/主题目录下的 PHP 文件一律禁止直接执行（与 Nginx 规则对齐；NC 大小写不敏感，
+    # 防 .PHP 等变体绕过；扩展名补全 pht/phps 等可执行伪装；静态资源不受影响，另有文件头部 APP_BOOT 守卫双重防护）
+    RewriteRule ^(plugins|themes)/.+\.(php|phtml|phar|pht|phps|php\d)$ - [F,L,NC]
+
+    # uploads 目录禁止执行 PHP（根级兜底，不依赖 uploads/.htaccess 单点防护；扩展名同步补全 pht/phps）
+    RewriteRule ^uploads/.+\.(php|phtml|phar|pht|phps|php\d)$ - [F,L,NC]
 
     # 语言包目录：一律禁止直接访问（内核经 include 加载，另有 APP_BOOT 守卫）
     RewriteRule ^assets/langs/ - [F,L]

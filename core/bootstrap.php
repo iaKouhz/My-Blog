@@ -7,6 +7,16 @@ define('APP_BOOT', true);
 define('APP_ROOT', dirname(__DIR__));
 define('APP_VERSION', '1.0.0');
 
+// 调试模式仅从环境变量 APP_DEBUG 或 config.php 中的 DEBUG 常量读取，禁止数据库 Option 控制，
+// 防止数据库被篡改（如后台配置项被注入）后远程开启调试模式、借错误输出泄露路径/SQL 等敏感信息
+define('APP_DEBUG', getenv('APP_DEBUG') === '1' || (defined('DEBUG') && DEBUG === true));
+
+// 立即关闭错误显示，防止引导早期故障（DB 连接失败等）在策略生效前泄露信息；
+// 调试模式下由下方错误显示策略重新开启
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+error_reporting(E_ALL);
+
 require APP_ROOT . '/core/Config.php';
 require APP_ROOT . '/core/Utils.php';
 require APP_ROOT . '/core/DB.php';
@@ -27,7 +37,7 @@ require APP_ROOT . '/core/Theme.php';
 function app_error_handler($errno, $errstr, $errfile, $errline)
 {
     error_log(sprintf('[blog] %s at %s:%d', $errstr, $errfile, $errline));
-    if (Option::get('debug', '0') === '1') {
+    if (APP_DEBUG) {
         return false; // 调试模式交给默认输出
     }
     return true;
@@ -39,7 +49,7 @@ function app_exception_handler($ex)
     if (!headers_sent()) {
         http_response_code(500);
     }
-    if (Option::get('debug', '0') === '1') {
+    if (APP_DEBUG) {
         echo '<pre>' . e($ex->getMessage()) . '</pre>';
     } else {
         echo '服务器内部错误，请稍后再试';
@@ -80,14 +90,10 @@ if (!in_array($timezone, timezone_identifiers_list(), true)) {
 }
 date_default_timezone_set($timezone);
 
-// 错误显示策略：debug 关闭时绝不向页面暴露错误
-if (Option::get('debug', '0') === '1') {
+// 错误显示策略：display_errors/log_errors 已在文件顶部按"默认关闭"设置，
+// 此处仅在 APP_DEBUG（环境变量/config.php，禁止数据库控制）开启时重新打开错误显示
+if (APP_DEBUG) {
     ini_set('display_errors', '1');
-    error_reporting(E_ALL);
-} else {
-    ini_set('display_errors', '0');
-    error_reporting(E_ALL);
-    ini_set('log_errors', '1');
 }
 
 // Session：HttpOnly + SameSite=Lax + HTTPS 下 Secure；空闲超时在 Auth::checkSessionTimeout 处理
@@ -108,7 +114,14 @@ Auth::checkSessionTimeout();
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: SAMEORIGIN');
 header('Referrer-Policy: strict-origin-when-cross-origin');
-header('X-XSS-Protection: 1; mode=block');
+// HSTS 仅在 HTTPS 下发送（HTTP 响应中的 HSTS 头会被浏览器忽略，
+// 且对尚未启用 HTTPS 的部署发送会误导后续强制跳转预期）
+if ($secure) {
+    header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
+}
+// X-XSS-Protection 已被现代浏览器废弃（且历史上引入过新 XSS 面），移除；
+// 改用 CSP 作为 XSS 纵深防御（前台文章页会输出更严格的 CSP 覆盖本头）
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:;");
 
 // 加载已启用插件并触发 init
 Plugin::loadActive();

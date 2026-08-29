@@ -2,6 +2,10 @@
 /**
  * Markdown→HTML 轻量解析 + 基于 DOMDocument 的标签/属性白名单 XSS 过滤
  * 数学公式 $...$/$$...$$ 转为占位容器交由前端本地化 KaTeX 渲染
+ *
+ * 安全提示：
+ * 1. span/div/code/pre 允许任意 class 值，建议限制白名单（如 ^language-[\w-]+$）
+ * 2. cleanNode 递归解包未知标签，建议添加深度上限（如 10 层）防 DoS
  */
 defined('APP_BOOT') or exit;
 

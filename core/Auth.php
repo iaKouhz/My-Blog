@@ -11,6 +11,9 @@ class Auth
     private static $user = null;
     private static $userLoaded = false;
 
+    /** @var string|null 抹平计时侧信道用的哑口令哈希（惰性生成，仅本进程内缓存） */
+    private static $dummyHash = null;
+
     /** 常见弱口令黑名单（可经 password_blacklist 过滤器由插件扩展） */
     private static $weakPasswords = array(
         '12345678', '123456789', '1234567890', 'password', 'password1', 'password123',
@@ -192,7 +195,14 @@ class Auth
         }
 
         if (!$user) {
-            blog_log('auth', 'login.fail', 'fail', array('account' => $account, 'reason' => 'not_found'));
+            // 计时侧信道抹平：对不存在的账号同样执行一次 bcrypt 校验，
+            // 使"账号不存在"与"密码错误"响应耗时一致，防止按响应时间枚举账号
+            if (self::$dummyHash === null) {
+                self::$dummyHash = password_hash('dummy-password-for-timing', PASSWORD_DEFAULT);
+            }
+            password_verify($password, self::$dummyHash);
+            // 审计日志账号脱敏：不落明文账号，防止日志泄露可被枚举的账号名
+            blog_log('auth', 'login.fail', 'fail', array('account' => mb_substr($account, 0, 2) . '***', 'reason' => 'not_found'));
             // 设计妥协（当前版本）：不存在账号直接返回统一模糊话术，不做影子锁定。
             // 代价是攻击者对同一名字连续失败 5 次后可凭"第 5 次提示差异"探测账号存在性；
             // 影子锁定方案因每个被喷洒的用户名都会在 options 表 mint 计数行
@@ -202,24 +212,25 @@ class Auth
 
         // 锁定期检查：与密码错误统一提示，防止探测账号是否存在及其状态（原因仅入审计日志）
         if (!empty($user['locked_until']) && strtotime($user['locked_until']) > time()) {
-            blog_log('auth', 'login.fail', 'fail', array('account' => $account, 'reason' => 'locked'));
+            // 审计日志账号脱敏（同 not_found 分支）
+            blog_log('auth', 'login.fail', 'fail', array('account' => mb_substr($account, 0, 2) . '***', 'reason' => 'locked'));
             return array('ok' => false, 'msg' => '账号或密码错误');
         }
 
         if ((int) $user['status'] !== 1) {
-            blog_log('auth', 'login.fail', 'fail', array('account' => $account, 'reason' => 'disabled'));
+            blog_log('auth', 'login.fail', 'fail', array('account' => mb_substr($account, 0, 2) . '***', 'reason' => 'disabled'));
             return array('ok' => false, 'msg' => '账号或密码错误');
         }
 
         // 封禁：内容保留但禁止登录（不泄露账号状态细节，统一按认证失败提示）
         if (!empty($user['is_banned'])) {
-            blog_log('auth', 'login.fail', 'fail', array('account' => $account, 'reason' => 'banned'));
+            blog_log('auth', 'login.fail', 'fail', array('account' => mb_substr($account, 0, 2) . '***', 'reason' => 'banned'));
             return array('ok' => false, 'msg' => '账号或密码错误');
         }
 
         // 注销：禁止登录，前台历史内容匿名展示由 Front 层处理
         if (!empty($user['is_deleted'])) {
-            blog_log('auth', 'login.fail', 'fail', array('account' => $account, 'reason' => 'deleted'));
+            blog_log('auth', 'login.fail', 'fail', array('account' => mb_substr($account, 0, 2) . '***', 'reason' => 'deleted'));
             return array('ok' => false, 'msg' => '账号或密码错误');
         }
 
@@ -281,6 +292,7 @@ class Auth
         $_SESSION['uid'] = (int) $user['id'];
         $_SESSION['role'] = $user['role'];
         $_SESSION['last_active'] = time();
+        $_SESSION['created_at'] = time(); // 记录会话创建时间，用于绝对有效期检查
         $_SESSION['pwd_fp'] = self::passwordFingerprint($user['password']);
         unset($_SESSION['pwd_expired']);
         self::$user = null;
@@ -327,7 +339,7 @@ class Auth
 
     /**
      * 口令复杂度统一校验（安装/注册/后台建号/改密四个入口共用）
-     * 规则：8-64 位、四类字符至少三类、不含用户名、不命中弱口令黑名单
+     * 规则：8-72 字节、四类字符至少三类、不含用户名、不命中弱口令黑名单
      *
      * @param string $password 待校验密码
      * @param string $username 关联用户名
@@ -335,9 +347,11 @@ class Auth
      */
     public static function validate_password_strength($password, $username = '')
     {
-        $len = mb_strlen($password);
-        if ($len < 8 || $len > 64) {
-            return '密码长度必须为 8-64 位';
+        // 长度按字节计算：bcrypt 仅取输入的前 72 字节，超长部分被静默截断会造成
+        // "超长密码不同后缀均可登录"的混淆；多字节字符按 UTF-8 字节数计入
+        $len = strlen($password);
+        if ($len < 8 || $len > 72) { // bcrypt 只取前 72 字节
+            return '密码长度必须为 8-72 字节';
         }
         $classes = 0;
         if (preg_match('/[A-Z]/', $password)) {
@@ -428,6 +442,12 @@ class Auth
     public static function checkSessionTimeout()
     {
         if (empty($_SESSION['uid'])) {
+            return;
+        }
+        // 绝对有效期检查（12 小时）：滑动空闲超时之外的上限，防止长期活跃会话永久有效
+        if (isset($_SESSION['created_at']) && (time() - (int) $_SESSION['created_at']) > 43200) {
+            blog_log('auth', 'session.expired', 'success', array('reason' => 'absolute_timeout'));
+            self::logout();
             return;
         }
         $timeout = max(1, (int) Option::get('session_timeout_minutes', 30)) * 60;

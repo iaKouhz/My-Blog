@@ -51,7 +51,23 @@ class ZipSafe
             return 'zip 文件无法打开';
         }
         $hasMust = $mustRegex === '';
+        // Zip Bomb 防护：累计解压后体积（压缩包可很小，解压后可能巨大）
+        $totalSize = 0;
         for ($i = 0; $i < $zip->numFiles; $i++) {
+            // Zip Bomb 防护：限制条目数，防止海量条目耗尽内存/磁盘
+            if ($i >= 2000) {
+                $zip->close();
+                $zip = null;
+                return 'zip 条目数超限（最多2000个）';
+            }
+            // Zip Bomb 防护：限制解压后总大小（以条目声明的解压尺寸累计）
+            $st = $zip->statIndex($i);
+            $totalSize += isset($st['size']) ? (int) $st['size'] : 0;
+            if ($totalSize > 200 * 1024 * 1024) {
+                $zip->close();
+                $zip = null;
+                return 'zip 解压后体积超限（最大200MB）';
+            }
             $entry = $zip->getNameIndex($i);
             // 拒绝路径穿越/绝对路径/反斜杠；冒号条目（Windows 盘符如 C:/evil 或 ADS 流名）同样非法
             if (strpos($entry, '..') !== false || substr($entry, 0, 1) === '/'
@@ -61,10 +77,12 @@ class ZipSafe
                 return 'zip 包含非法路径条目';
             }
             // 条目白名单：拒绝隐藏文件（.htaccess/.user.ini 等，防宝塔下重写失效后被直接执行）
-            // 与 phar/phtml/php3+ 等可执行伪装；注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP，
+            // 与 phar/phtml/pht/phps/php3+ 等可执行伪装；注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP，
             // 直接执行防护由重写规则（.htaccess/nginx.conf.example/bt-panel.rewrite.conf）承担
             $base = basename($entry);
-            if ($base === '' || substr($base, 0, 1) === '.' || preg_match('/\.(phar|phtml|php\d)$/i', $base)) {
+            // 大小写不敏感匹配可执行伪装后缀（.PhAr/.PHTML/.PHT/.PHPS/.PHP5 等大小写变体在某些环境同样可执行）；
+            // 注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP
+            if ($base === '' || substr($base, 0, 1) === '.' || preg_match('/\.(phar|phtml?|pht|phps|php\d)$/i', $base)) {
                 $zip->close();
                 $zip = null;
                 return 'zip 包含不允许的条目：' . $base;
@@ -201,11 +219,16 @@ class ZipSafe
         rmdir($sub);
     }
 
-    /** 递归删除目录 */
+    /** 递归删除目录（符号链接只删链接本身，不跟随进入目标目录） */
     public static function removeDir($dir)
     {
         foreach (array_diff(scandir($dir), array('.', '..')) as $item) {
             $path = $dir . '/' . $item;
+            // 符号链接直接 unlink：is_dir 会跟随链接，误删链接目标目录的内容
+            if (is_link($path)) {
+                unlink($path);
+                continue;
+            }
             if (is_dir($path)) {
                 self::removeDir($path);
             } else {

@@ -269,7 +269,7 @@ class Plugin
         }
     }
 
-    /** 递归删除目录 */
+    /** 递归删除目录（符号链接只删链接本身，不跟随进入目标目录） */
     private static function removeDir($dir)
     {
         $items = scandir($dir);
@@ -278,6 +278,11 @@ class Plugin
                 continue;
             }
             $path = $dir . '/' . $item;
+            // 符号链接直接 unlink：is_dir 会跟随链接，误删链接目标目录的内容
+            if (is_link($path)) {
+                unlink($path);
+                continue;
+            }
             if (is_dir($path)) {
                 self::removeDir($path);
             } else {

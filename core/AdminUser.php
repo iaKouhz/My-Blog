@@ -64,12 +64,12 @@ class AdminUser
         if ($id > 0) {
             self::updateUser($id, $nickname, $email, $phone, $role, $status, $forceChange, $newPassword);
         } else {
-            self::createUser($nickname, $email, $phone, $role, $forceChange);
+            self::createUser($nickname, $email, $phone, $role);
         }
     }
 
-    /** 新建用户：随机初始密码（一次性展示，不落日志） */
-    private static function createUser($nickname, $email, $phone, $role, $forceChange)
+    /** 新建用户：随机初始密码（一次性展示，不落日志；始终强制首登改密） */
+    private static function createUser($nickname, $email, $phone, $role)
     {
         $username = input_text('username', '', 32, 'post');
         if (!preg_match('/^[A-Za-z0-9_]{3,32}$/', $username)) {
@@ -107,8 +107,9 @@ class AdminUser
                 'avatar'              => '',
                 'role'                => $role,
                 'status'              => 1,
-                // 勾选“下次登录强制改密”：将改密时间置为过期阈值之前
-                'password_changed_at' => $forceChange ? '2000-01-01 00:00:00' : now(),
+                // 初始密码经 Flash 明文回显一次，必须强制首登改密：
+                // 改密时间置为过期阈值之前，登录后将被强制跳转改密页，防止初始密码长期有效
+                'password_changed_at' => '2000-01-01 00:00:00',
                 'login_fail'          => 0,
                 'created_at'          => now(),
             ));
@@ -146,6 +147,14 @@ class AdminUser
             $currentPassword = input_password('current_password');
             $operator = Auth::user();
             if ($currentPassword === '' || !password_verify($currentPassword, $operator['password'])) {
+                // 操作者密码重验失败限流：复用登录失败计数，达到阈值即强制踢下线，
+                // 防止会话被劫持后以该入口无限爆破操作者密码
+                $fail = DB::query('users')->where('id', '=', (int) $operator['id'])->increment('login_fail');
+                if ($fail !== false && $fail >= max(1, (int) Option::get('login_max_fail', 5))) {
+                    blog_log('security', 'operator_reauth.lockout', 'fail', array('user_id' => (int) $operator['id']));
+                    Auth::logout(); // 强制踢下线
+                    redirect(Router::url('login'));
+                }
                 blog_log('user', 'user.update', 'fail', array(
                     'target_user_id' => $id, 'reason' => 'operator_password_wrong',
                 ));
@@ -164,6 +173,8 @@ class AdminUser
             redirect(site_base_admin('user/edit&id=' . $id));
         }
         // 最后一位在职管理员不得被降权或禁用
+        // TODO: 存在 TOCTOU 竞态风险（检查与更新之间并发操作可能同时通过），
+        // 建议在 DB 层添加事务支持后加锁复检；当前缓解措施：操作日志记录 + 管理员操作审计
         if ($user['role'] === 'admin' && ($role !== 'admin' || $status !== 1) && self::adminCount() <= 1) {
             flash_set('error', admin_t('admin.user.last_admin'));
             redirect(site_base_admin('user/edit&id=' . $id));
@@ -326,7 +337,10 @@ class AdminUser
         return DB::query('users')->where('id', '=', (int) $id)->first();
     }
 
-    /** 可用管理员数量（role=admin 且未被禁用/封禁/注销，保护最后一位） */
+    /**
+     * 可用管理员数量（role=admin 且未被禁用/封禁/注销，保护最后一位）
+     * 注意：调用方在“检查-更新”之间存在 TOCTOU 竞态窗口，待 DB 层事务支持后收严
+     */
     private static function adminCount()
     {
         return DB::query('users')

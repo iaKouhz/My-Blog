@@ -85,6 +85,8 @@ function install_schema($prefix)
         PRIMARY KEY (`option_key`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
 
+    // 注意：验证码明文存储（6位数字），有 expires_at + attempts 双重保护。
+    // 如需更高安全性，可改为 hash('sha256', $code) 存储。
     $tables['verify_codes'] = "CREATE TABLE IF NOT EXISTS `{$prefix}verify_codes` (
         `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
         `scene` ENUM('register','reset','profile') NOT NULL,
