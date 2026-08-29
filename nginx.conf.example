@@ -13,13 +13,13 @@ server {
     location = /config.php { deny all; }
     location ^~ /core/ { deny all; }
 
-    # uploads 禁止执行 PHP
+    # uploads 禁止执行 PHP（~* 大小写不敏感，防 .PHP 等变体绕过）
     location ^~ /uploads/ {
-        location ~ \.php$ { deny all; }
+        location ~* \.php$ { deny all; }
     }
 
-    # 插件/主题/内核中的 PHP 文件一律不允许直接执行（均有 APP_BOOT 守卫，双保险）
-    location ~ ^/(plugins|themes|core)/.*\.php$ { deny all; }
+    # 插件/主题/内核中的 PHP 文件一律不允许直接执行（均有 APP_BOOT 守卫，双保险；~* 大小写不敏感）
+    location ~* ^/(plugins|themes|core)/.*\.php$ { deny all; }
 
     # 语言包目录禁止直接访问（内核经 include 加载，另有 APP_BOOT 守卫）
     location ^~ /assets/langs/ { deny all; }
@@ -34,7 +34,8 @@ server {
         rewrite ^/(.*)$ /index.php?r=$1 last;
     }
 
-    location ~ \.php$ {
+    # PHP 解析入口（~* 大小写不敏感，保证 .PHP 请求同样由 FastCGI 处理而非直接暴露）
+    location ~* \.php$ {
         try_files $uri =404;
         fastcgi_pass 127.0.0.1:9000;
         fastcgi_index index.php;
