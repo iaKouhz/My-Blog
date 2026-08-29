@@ -150,7 +150,7 @@ class AdminUser
                 // 操作者密码重验失败限流：复用登录失败计数，达到阈值即强制踢下线，
                 // 防止会话被劫持后以该入口无限爆破操作者密码
                 $fail = DB::query('users')->where('id', '=', (int) $operator['id'])->increment('login_fail');
-                if ($fail !== false && $fail >= (int) Option::get('login_max_fail', 5)) {
+                if ($fail !== false && $fail >= max(1, (int) Option::get('login_max_fail', 5))) {
                     blog_log('security', 'operator_reauth.lockout', 'fail', array('user_id' => (int) $operator['id']));
                     Auth::logout(); // 强制踢下线
                     redirect(Router::url('login'));

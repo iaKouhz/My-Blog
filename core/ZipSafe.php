@@ -55,7 +55,7 @@ class ZipSafe
         $totalSize = 0;
         for ($i = 0; $i < $zip->numFiles; $i++) {
             // Zip Bomb 防护：限制条目数，防止海量条目耗尽内存/磁盘
-            if ($i > 2000) {
+            if ($i >= 2000) {
                 $zip->close();
                 $zip = null;
                 return 'zip 条目数超限（最多2000个）';
@@ -77,12 +77,12 @@ class ZipSafe
                 return 'zip 包含非法路径条目';
             }
             // 条目白名单：拒绝隐藏文件（.htaccess/.user.ini 等，防宝塔下重写失效后被直接执行）
-            // 与 phar/phtml/php3+ 等可执行伪装；注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP，
+            // 与 phar/phtml/pht/phps/php3+ 等可执行伪装；注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP，
             // 直接执行防护由重写规则（.htaccess/nginx.conf.example/bt-panel.rewrite.conf）承担
             $base = basename($entry);
-            // 大小写不敏感匹配可执行伪装后缀（.PhAr/.PHTML/.PHP5 等大小写变体在某些环境同样可执行）；
+            // 大小写不敏感匹配可执行伪装后缀（.PhAr/.PHTML/.PHT/.PHPS/.PHP5 等大小写变体在某些环境同样可执行）；
             // 注意不能拒 .php —— 主题模板与插件主文件本身就是 PHP
-            if ($base === '' || substr($base, 0, 1) === '.' || preg_match('/\.(phar|phtml?|php\d)$/i', $base)) {
+            if ($base === '' || substr($base, 0, 1) === '.' || preg_match('/\.(phar|phtml?|pht|phps|php\d)$/i', $base)) {
                 $zip->close();
                 $zip = null;
                 return 'zip 包含不允许的条目：' . $base;
