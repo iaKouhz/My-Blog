@@ -68,6 +68,10 @@ class AdminUpload
         if (!isset(self::$mimeMap[$mime])) {
             json_out(array('code' => 1, 'msg' => admin_t('admin.upload.mime_whitelist')));
         }
+        // 内容级校验：MIME 可被伪造文件头欺骗，getimagesize 解析图片结构确保是真实图片
+        if (getimagesize($file['tmp_name']) === false) {
+            json_out(array('code' => 1, 'msg' => '无效的图片文件'));
+        }
 
         $subDir = date('Y/m');
         $targetDir = APP_ROOT . '/uploads/' . $subDir;
